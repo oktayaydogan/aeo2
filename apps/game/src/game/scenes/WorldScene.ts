@@ -14,7 +14,7 @@ import {
 import { BLOCKED_CELL_KEYS, PROTOTYPE_MAP } from "../prototypeMap";
 
 const MAP_SIZE = 20;
-const UNIT_RADIUS = 9;
+const UNIT_RADIUS = 5;
 const DRAG_THRESHOLD_PX = 6;
 
 interface DragSelectionState {
@@ -40,6 +40,9 @@ export class WorldScene extends Phaser.Scene {
   private readonly selectedUnitIds = new Set<string>();
 
   private accumulatorMs = 0;
+  private metricsElapsedMs = 0;
+  private simulationCostMs = 0;
+  private metricsText?: Phaser.GameObjects.Text;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private dragSelection?: DragSelectionState;
@@ -63,6 +66,17 @@ export class WorldScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(100_000);
 
+    this.metricsText = this.add
+      .text(14, 14, "", {
+        fontFamily: "monospace",
+        fontSize: "13px",
+        color: "#e9eef2",
+        backgroundColor: "#091017cc",
+        padding: { x: 8, y: 6 }
+      })
+      .setScrollFactor(0)
+      .setDepth(100_001);
+
     this.configureInput();
 
     this.cameras.main.setZoom(1);
@@ -75,11 +89,15 @@ export class WorldScene extends Phaser.Scene {
     this.accumulatorMs += Math.min(delta, 250);
 
     while (this.accumulatorMs >= this.simulation.tickDurationMs) {
+      const stepStartedAt = performance.now();
       this.simulation.step();
+      this.simulationCostMs = performance.now() - stepStartedAt;
       this.accumulatorMs -= this.simulation.tickDurationMs;
     }
 
-    this.renderSnapshot(this.simulation.getSnapshot());
+    const snapshot = this.simulation.getSnapshot();
+    this.renderSnapshot(snapshot);
+    this.updateMetrics(delta, snapshot);
   }
 
   private drawMap(): void {
@@ -294,6 +312,27 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private updateMetrics(delta: number, snapshot: SimulationSnapshot): void {
+    if (!this.metricsText) {
+      return;
+    }
+
+    this.metricsElapsedMs += delta;
+
+    if (this.metricsElapsedMs < 250) {
+      return;
+    }
+
+    this.metricsElapsedMs = 0;
+    this.metricsText.setText([
+      `entities: ${snapshot.units.length}`,
+      `selected: ${this.selectedUnitIds.size}`,
+      `fps: ${Math.round(this.game.loop.actualFps)}`,
+      `sim tick: ${this.simulationCostMs.toFixed(2)} ms`,
+      `tick: ${snapshot.tick}`
+    ]);
+  }
+
   private updateCamera(delta: number): void {
     const camera = this.cameras.main;
     const speed = (520 * delta) / 1000 / camera.zoom;
@@ -332,16 +371,16 @@ export class WorldScene extends Phaser.Scene {
 function createInitialUnits(): UnitState[] {
   const units: UnitState[] = [];
 
-  for (let row = 0; row < 3; row += 1) {
-    for (let column = 0; column < 4; column += 1) {
-      const index = row * 4 + column + 1;
+  for (let row = 0; row < 5; row += 1) {
+    for (let column = 0; column < 10; column += 1) {
+      const index = row * 10 + column + 1;
 
       units.push({
         id: `villager-${index}`,
         ownerId: "player-1",
         position: {
-          x: 3.5 + column * 0.85,
-          y: 4.5 + row * 0.85
+          x: 1.4 + column * 0.68,
+          y: 2.4 + row * 0.68
         },
         destination: null,
         speed: 2.4
@@ -349,22 +388,22 @@ function createInitialUnits(): UnitState[] {
     }
   }
 
-  units.push(
-    {
-      id: "enemy-1",
-      ownerId: "player-2",
-      position: { x: 15, y: 12.5 },
-      destination: null,
-      speed: 2.2
-    },
-    {
-      id: "enemy-2",
-      ownerId: "player-2",
-      position: { x: 16, y: 13.5 },
-      destination: null,
-      speed: 2.2
+  for (let row = 0; row < 5; row += 1) {
+    for (let column = 0; column < 10; column += 1) {
+      const index = row * 10 + column + 1;
+
+      units.push({
+        id: `enemy-${index}`,
+        ownerId: "player-2",
+        position: {
+          x: 11.6 + column * 0.68,
+          y: 11.2 + row * 0.68
+        },
+        destination: null,
+        speed: 2.2
+      });
     }
-  );
+  }
 
   return units;
 }
