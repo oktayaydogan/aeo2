@@ -8,15 +8,24 @@ import {
 import {
   gridToScreen,
   screenToGrid,
-  type IsometricProjection
+  type IsometricProjection,
+  type Point2
 } from "../isometric";
+import { BLOCKED_CELL_KEYS, PROTOTYPE_MAP } from "../prototypeMap";
 
 const MAP_SIZE = 20;
 const UNIT_RADIUS = 9;
+const DRAG_THRESHOLD_PX = 6;
+
+interface DragSelectionState {
+  startScreen: Point2;
+  startWorld: Point2;
+}
 
 export class WorldScene extends Phaser.Scene {
   private readonly simulation = new Simulation({
     tickRate: DEFAULT_TICK_RATE,
+    map: PROTOTYPE_MAP,
     units: createInitialUnits()
   });
 
@@ -32,6 +41,8 @@ export class WorldScene extends Phaser.Scene {
 
   private accumulatorMs = 0;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
+  private selectionGraphics?: Phaser.GameObjects.Graphics;
+  private dragSelection?: DragSelectionState;
   private wasd?: {
     up: Phaser.Input.Keyboard.Key;
     down: Phaser.Input.Keyboard.Key;
@@ -46,6 +57,12 @@ export class WorldScene extends Phaser.Scene {
   create(): void {
     this.drawMap();
     this.createUnitViews(this.simulation.getSnapshot());
+
+    this.selectionGraphics = this.add
+      .graphics()
+      .setScrollFactor(0)
+      .setDepth(100_000);
+
     this.configureInput();
 
     this.cameras.main.setZoom(1);
@@ -74,9 +91,13 @@ export class WorldScene extends Phaser.Scene {
         const right = gridToScreen({ x: x + 1, y }, this.projection);
         const bottom = gridToScreen({ x: x + 1, y: y + 1 }, this.projection);
         const left = gridToScreen({ x, y: y + 1 }, this.projection);
+        const blocked = BLOCKED_CELL_KEYS.has(`${x},${y}`);
 
-        graphics.fillStyle((x + y) % 2 === 0 ? 0x29483c : 0x2d4e41, 1);
-        graphics.lineStyle(1, 0x6d8a73, 0.2);
+        graphics.fillStyle(
+          blocked ? 0x4a4b47 : (x + y) % 2 === 0 ? 0x29483c : 0x2d4e41,
+          1
+        );
+        graphics.lineStyle(1, blocked ? 0xa19a83 : 0x6d8a73, blocked ? 0.55 : 0.2);
         graphics.beginPath();
         graphics.moveTo(top.x, top.y);
         graphics.lineTo(right.x, right.y);
@@ -85,6 +106,20 @@ export class WorldScene extends Phaser.Scene {
         graphics.closePath();
         graphics.fillPath();
         graphics.strokePath();
+
+        if (blocked) {
+          graphics.lineStyle(2, 0xb4aa89, 0.32);
+          graphics.beginPath();
+          graphics.moveTo(
+            (top.x + left.x) / 2,
+            (top.y + left.y) / 2
+          );
+          graphics.lineTo(
+            (right.x + bottom.x) / 2,
+            (right.y + bottom.y) / 2
+          );
+          graphics.strokePath();
+        }
       }
     }
   }
@@ -101,12 +136,15 @@ export class WorldScene extends Phaser.Scene {
 
       circle.setStrokeStyle(2, 0x101922, 0.8);
       circle.setDepth(point.y);
-      circle.setInteractive({ useHandCursor: true });
-      circle.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-        if (pointer.leftButtonDown() && unit.ownerId === "player-1") {
-          this.selectOnly(unit.id);
-        }
-      });
+
+      if (unit.ownerId === "player-1") {
+        circle.setInteractive({ useHandCursor: true });
+        circle.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+          if (pointer.leftButtonDown()) {
+            this.selectOnly(unit.id);
+          }
+        });
+      }
 
       this.unitViews.set(unit.id, circle);
     }
@@ -127,31 +165,37 @@ export class WorldScene extends Phaser.Scene {
       "pointerdown",
       (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
         if (pointer.rightButtonDown()) {
-          if (this.selectedUnitIds.size === 0) return;
-
-          const target = screenToGrid(
-            { x: pointer.worldX, y: pointer.worldY },
-            this.projection
-          );
-
-          this.simulation.queueCommand({
-            type: "move",
-            playerId: "player-1",
-            unitIds: [...this.selectedUnitIds],
-            target: {
-              x: Phaser.Math.Clamp(target.x, 0, MAP_SIZE - 0.01),
-              y: Phaser.Math.Clamp(target.y, 0, MAP_SIZE - 0.01)
-            }
-          });
-
+          this.issueMoveCommand(pointer);
           return;
         }
 
-        if (pointer.leftButtonDown() && currentlyOver.length === 0) {
-          this.selectedUnitIds.clear();
+        if (!pointer.leftButtonDown() || currentlyOver.length > 0) {
+          return;
         }
+
+        this.selectedUnitIds.clear();
+        this.dragSelection = {
+          startScreen: { x: pointer.x, y: pointer.y },
+          startWorld: { x: pointer.worldX, y: pointer.worldY }
+        };
       }
     );
+
+    this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+      if (!this.dragSelection || !pointer.leftButtonDown()) {
+        return;
+      }
+
+      this.drawSelectionBox(pointer);
+    });
+
+    this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
+      if (!this.dragSelection) {
+        return;
+      }
+
+      this.finishSelectionBox(pointer);
+    });
 
     this.input.on(
       "wheel",
@@ -169,6 +213,87 @@ export class WorldScene extends Phaser.Scene {
     );
   }
 
+  private issueMoveCommand(pointer: Phaser.Input.Pointer): void {
+    if (this.selectedUnitIds.size === 0) {
+      return;
+    }
+
+    const target = screenToGrid(
+      { x: pointer.worldX, y: pointer.worldY },
+      this.projection
+    );
+
+    this.simulation.queueCommand({
+      type: "move",
+      playerId: "player-1",
+      unitIds: [...this.selectedUnitIds],
+      target: {
+        x: Phaser.Math.Clamp(target.x, 0, MAP_SIZE - 0.01),
+        y: Phaser.Math.Clamp(target.y, 0, MAP_SIZE - 0.01)
+      }
+    });
+  }
+
+  private drawSelectionBox(pointer: Phaser.Input.Pointer): void {
+    if (!this.dragSelection || !this.selectionGraphics) {
+      return;
+    }
+
+    const start = this.dragSelection.startScreen;
+    const left = Math.min(start.x, pointer.x);
+    const top = Math.min(start.y, pointer.y);
+    const width = Math.abs(pointer.x - start.x);
+    const height = Math.abs(pointer.y - start.y);
+
+    this.selectionGraphics.clear();
+    this.selectionGraphics.fillStyle(0xd9c56c, 0.1);
+    this.selectionGraphics.lineStyle(1, 0xf7e7a9, 0.9);
+    this.selectionGraphics.fillRect(left, top, width, height);
+    this.selectionGraphics.strokeRect(left, top, width, height);
+  }
+
+  private finishSelectionBox(pointer: Phaser.Input.Pointer): void {
+    const drag = this.dragSelection;
+
+    this.dragSelection = undefined;
+    this.selectionGraphics?.clear();
+
+    if (!drag) {
+      return;
+    }
+
+    const screenDistance = Math.hypot(
+      pointer.x - drag.startScreen.x,
+      pointer.y - drag.startScreen.y
+    );
+
+    if (screenDistance < DRAG_THRESHOLD_PX) {
+      return;
+    }
+
+    const left = Math.min(drag.startWorld.x, pointer.worldX);
+    const right = Math.max(drag.startWorld.x, pointer.worldX);
+    const top = Math.min(drag.startWorld.y, pointer.worldY);
+    const bottom = Math.max(drag.startWorld.y, pointer.worldY);
+
+    for (const unit of this.simulation.getSnapshot().units) {
+      if (unit.ownerId !== "player-1") {
+        continue;
+      }
+
+      const point = gridToScreen(unit.position, this.projection);
+
+      if (
+        point.x >= left &&
+        point.x <= right &&
+        point.y >= top &&
+        point.y <= bottom
+      ) {
+        this.selectedUnitIds.add(unit.id);
+      }
+    }
+  }
+
   private updateCamera(delta: number): void {
     const camera = this.cameras.main;
     const speed = (520 * delta) / 1000 / camera.zoom;
@@ -182,7 +307,10 @@ export class WorldScene extends Phaser.Scene {
   private renderSnapshot(snapshot: SimulationSnapshot): void {
     for (const unit of snapshot.units) {
       const view = this.unitViews.get(unit.id);
-      if (!view) continue;
+
+      if (!view) {
+        continue;
+      }
 
       const point = gridToScreen(unit.position, this.projection);
       view.setPosition(point.x, point.y);
@@ -202,34 +330,41 @@ export class WorldScene extends Phaser.Scene {
 }
 
 function createInitialUnits(): UnitState[] {
-  return [
-    {
-      id: "villager-1",
-      ownerId: "player-1",
-      position: { x: 5, y: 5 },
-      destination: null,
-      speed: 2.4
-    },
-    {
-      id: "villager-2",
-      ownerId: "player-1",
-      position: { x: 6, y: 5.5 },
-      destination: null,
-      speed: 2.4
-    },
-    {
-      id: "villager-3",
-      ownerId: "player-1",
-      position: { x: 5.5, y: 6.5 },
-      destination: null,
-      speed: 2.4
-    },
+  const units: UnitState[] = [];
+
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < 4; column += 1) {
+      const index = row * 4 + column + 1;
+
+      units.push({
+        id: `villager-${index}`,
+        ownerId: "player-1",
+        position: {
+          x: 3.5 + column * 0.85,
+          y: 4.5 + row * 0.85
+        },
+        destination: null,
+        speed: 2.4
+      });
+    }
+  }
+
+  units.push(
     {
       id: "enemy-1",
       ownerId: "player-2",
-      position: { x: 14, y: 13 },
+      position: { x: 15, y: 12.5 },
+      destination: null,
+      speed: 2.2
+    },
+    {
+      id: "enemy-2",
+      ownerId: "player-2",
+      position: { x: 16, y: 13.5 },
       destination: null,
       speed: 2.2
     }
-  ];
+  );
+
+  return units;
 }
