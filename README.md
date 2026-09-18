@@ -81,6 +81,13 @@ Implemented:
 - [x] Ownership checks reject enemy commands
 - [x] Simulation tests gate Vercel deployment
 - [x] Economy HUD and resource amounts
+- [x] House and Barracks construction
+- [x] Population cap from completed buildings
+- [x] Town Center villager production
+- [x] Barracks militia production
+- [x] Building footprints block pathfinding
+- [x] Basic melee combat
+- [x] Deterministic enemy attack AI
 - [x] 100-entity benchmark preserved at `?benchmark=1`
 
 Verification:
