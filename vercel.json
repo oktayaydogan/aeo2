@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "installCommand": "corepack enable && corepack prepare pnpm@11.27.0 --activate && pnpm install --no-frozen-lockfile",
   "buildCommand": "pnpm --filter @aeo2/game build",
   "outputDirectory": "apps/game/dist"
 }
