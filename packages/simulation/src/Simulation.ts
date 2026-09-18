@@ -107,10 +107,7 @@ export class Simulation {
       const path = this.navigation.findPath(unit.position, resolvedTarget);
 
       if (path.length === 0) {
-        const alreadyThere =
-          distance(unit.position, resolvedTarget) <= ARRIVAL_EPSILON;
-
-        unit.destination = alreadyThere ? null : unit.destination;
+        unit.destination = null;
         unit.waypoints = [];
         return;
       }
