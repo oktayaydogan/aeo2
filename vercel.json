@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "buildCommand": "pnpm --filter @aeo2/game build",
+  "buildCommand": "npm run build --workspace=@aeo2/game",
   "outputDirectory": "apps/game/dist",
-  "installCommand": "pnpm install --recursive --no-frozen-lockfile"
+  "installCommand": "npm install --workspaces --include=dev"
 }
