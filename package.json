@@ -1,0 +1,13 @@
+{
+  "name": "aeo2",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @aeo2/game dev",
+    "build": "pnpm --recursive --if-present run build",
+    "test": "pnpm --recursive --if-present run test",
+    "typecheck": "pnpm --recursive --if-present run typecheck"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
