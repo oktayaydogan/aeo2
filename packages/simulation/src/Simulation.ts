@@ -1,5 +1,8 @@
 import { GridNavigation } from "./GridNavigation";
 import type {
+  BuildCommand,
+  BuildingDefinition,
+  BuildingState,
   DropOffPointState,
   GameCommand,
   GatherCommand,
@@ -36,9 +39,14 @@ interface GatherTask {
   dropOffPointId?: string;
 }
 
+interface BuildTask {
+  buildingId: string;
+}
+
 interface RuntimeUnit extends UnitState {
   waypoints: Vector2[];
   gatherTask?: GatherTask;
+  buildTask?: BuildTask;
 }
 
 export class Simulation {
@@ -46,11 +54,14 @@ export class Simulation {
   readonly tickDurationMs: number;
 
   private tick = 0;
+  private nextBuildingSequence = 1;
   private readonly navigation: GridNavigation;
   private readonly units = new Map<string, RuntimeUnit>();
   private readonly resources = new Map<string, ResourceNodeState>();
   private readonly dropOffPoints = new Map<string, DropOffPointState>();
   private readonly stockpiles = new Map<string, ResourceStockpile>();
+  private readonly buildingDefinitions = new Map<string, BuildingDefinition>();
+  private readonly buildings = new Map<string, BuildingState>();
   private readonly commandQueue: GameCommand[] = [];
 
   constructor(options: SimulationOptions = {}) {
@@ -67,6 +78,25 @@ export class Simulation {
         height: DEFAULT_MAP_SIZE
       }
     );
+
+    for (const definition of options.buildingDefinitions ?? []) {
+      if (this.buildingDefinitions.has(definition.kind)) {
+        throw new Error(`Duplicate building definition: ${definition.kind}`);
+      }
+
+      this.validateBuildingDefinition(definition);
+      this.buildingDefinitions.set(definition.kind, cloneBuildingDefinition(definition));
+    }
+
+    for (const building of options.buildings ?? []) {
+      if (this.buildings.has(building.id)) {
+        throw new Error(`Duplicate building id: ${building.id}`);
+      }
+
+      this.buildings.set(building.id, cloneBuilding(building));
+      this.ensureStockpile(building.ownerId);
+      this.nextBuildingSequence += 1;
+    }
 
     for (const unit of options.units ?? []) {
       if (this.units.has(unit.id)) {
@@ -120,6 +150,7 @@ export class Simulation {
     this.applyQueuedCommands();
     this.moveUnits();
     this.processEconomy();
+    this.processConstruction();
     this.resolveUnitSeparation();
     this.tick += 1;
   }
@@ -134,7 +165,8 @@ export class Simulation {
           playerId,
           resources: { ...resources }
         })
-      )
+      ),
+      buildings: [...this.buildings.values()].map(cloneBuilding)
     };
   }
 
@@ -146,6 +178,8 @@ export class Simulation {
         this.applyMoveCommand(command);
       } else if (command.type === "gather") {
         this.applyGatherCommand(command);
+      } else {
+        this.applyBuildCommand(command);
       }
     }
   }
@@ -165,6 +199,7 @@ export class Simulation {
 
     controllableUnits.forEach((unit, index) => {
       unit.gatherTask = undefined;
+      unit.buildTask = undefined;
       unit.activity = "moving";
 
       const requestedTarget = formationTargets[index] ?? command.target;
@@ -193,6 +228,7 @@ export class Simulation {
         continue;
       }
 
+      unit.buildTask = undefined;
       unit.gatherTask = {
         resourceId: resource.id,
         phase: "to-resource"
@@ -208,6 +244,75 @@ export class Simulation {
       }
 
       this.routeVillagerToResource(unit, resource);
+    }
+  }
+
+  private applyBuildCommand(command: BuildCommand): void {
+    const definition = this.buildingDefinitions.get(command.buildingKind);
+
+    if (!definition) {
+      return;
+    }
+
+    const position = {
+      x: Math.floor(command.position.x),
+      y: Math.floor(command.position.y)
+    };
+
+    if (!this.canPlaceBuilding(definition, position)) {
+      return;
+    }
+
+    const builders = command.unitIds
+      .map((unitId) => this.units.get(unitId))
+      .filter(
+        (unit): unit is RuntimeUnit =>
+          unit !== undefined &&
+          unit.ownerId === command.playerId &&
+          unit.kind === "villager"
+      )
+      .filter((unit) =>
+        this.canReachBuildSite(unit, definition, position)
+      );
+
+    if (builders.length === 0) {
+      return;
+    }
+
+    const stockpile = this.ensureStockpile(command.playerId);
+
+    if (!hasResources(stockpile, definition.cost)) {
+      return;
+    }
+
+    spendResources(stockpile, definition.cost);
+
+    const buildingId = this.createBuildingId(definition.kind);
+    const building: BuildingState = {
+      id: buildingId,
+      ownerId: command.playerId,
+      kind: definition.kind,
+      position,
+      progress: 0,
+      completed: false,
+      hitPoints: 1
+    };
+
+    this.buildings.set(building.id, building);
+
+    const buildTarget = buildingCenter(building, definition);
+
+    for (const unit of builders) {
+      unit.gatherTask = undefined;
+      unit.buildTask = {
+        buildingId: building.id
+      };
+      unit.activity = "moving";
+
+      if (!this.assignPath(unit, buildTarget)) {
+        unit.buildTask = undefined;
+        unit.activity = "idle";
+      }
     }
   }
 
@@ -248,7 +353,11 @@ export class Simulation {
       if (unit.waypoints.length === 0) {
         unit.destination = null;
 
-        if (!unit.gatherTask && unit.activity === "moving") {
+        if (
+          !unit.gatherTask &&
+          !unit.buildTask &&
+          unit.activity === "moving"
+        ) {
           unit.activity = "idle";
         }
       }
@@ -276,6 +385,70 @@ export class Simulation {
         this.processGathering(unit, resource);
       } else {
         this.processReturnToDropOff(unit, resource);
+      }
+    }
+  }
+
+  private processConstruction(): void {
+    for (const unit of this.units.values()) {
+      const task = unit.buildTask;
+
+      if (!task || unit.kind !== "villager") {
+        continue;
+      }
+
+      const building = this.buildings.get(task.buildingId);
+
+      if (!building) {
+        this.stopBuildTask(unit);
+        continue;
+      }
+
+      if (building.completed) {
+        this.stopBuildTask(unit);
+        continue;
+      }
+
+      const definition = this.buildingDefinitions.get(building.kind);
+
+      if (!definition) {
+        this.stopBuildTask(unit);
+        continue;
+      }
+
+      const target = buildingCenter(building, definition);
+      const buildRange = Math.max(
+        definition.footprint.width,
+        definition.footprint.height
+      ) * 0.5 + 0.5;
+
+      if (distance(unit.position, target) > buildRange) {
+        unit.activity = "moving";
+
+        if (unit.waypoints.length === 0 && !this.assignPath(unit, target)) {
+          this.stopBuildTask(unit);
+        }
+
+        continue;
+      }
+
+      unit.waypoints = [];
+      unit.destination = null;
+      unit.activity = "building";
+
+      building.progress = Math.min(
+        building.progress + 1 / (definition.buildTimeSeconds * this.tickRate),
+        1
+      );
+      building.hitPoints = Math.max(
+        1,
+        Math.round(definition.maxHitPoints * building.progress)
+      );
+
+      if (building.progress >= 1 - ARRIVAL_EPSILON) {
+        building.progress = 1;
+        building.completed = true;
+        building.hitPoints = definition.maxHitPoints;
       }
     }
   }
@@ -488,6 +661,78 @@ export class Simulation {
       )[0];
   }
 
+  private canPlaceBuilding(
+    definition: BuildingDefinition,
+    position: Vector2
+  ): boolean {
+    for (let y = 0; y < definition.footprint.height; y += 1) {
+      for (let x = 0; x < definition.footprint.width; x += 1) {
+        const cellX = position.x + x;
+        const cellY = position.y + y;
+
+        if (!this.navigation.isWalkableCell(cellX, cellY)) {
+          return false;
+        }
+
+        if (
+          [...this.buildings.values()].some((building) =>
+            this.buildingContainsCell(building, cellX, cellY)
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          [...this.resources.values()].some(
+            (resource) =>
+              Math.floor(resource.position.x) === cellX &&
+              Math.floor(resource.position.y) === cellY &&
+              resource.amount > ARRIVAL_EPSILON
+          )
+        ) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  private buildingContainsCell(
+    building: BuildingState,
+    cellX: number,
+    cellY: number
+  ): boolean {
+    const definition = this.buildingDefinitions.get(building.kind);
+
+    if (!definition) {
+      return false;
+    }
+
+    return (
+      cellX >= building.position.x &&
+      cellY >= building.position.y &&
+      cellX < building.position.x + definition.footprint.width &&
+      cellY < building.position.y + definition.footprint.height
+    );
+  }
+
+  private canReachBuildSite(
+    unit: RuntimeUnit,
+    definition: BuildingDefinition,
+    position: Vector2
+  ): boolean {
+    const target = {
+      x: position.x + definition.footprint.width / 2,
+      y: position.y + definition.footprint.height / 2
+    };
+
+    return (
+      distance(unit.position, target) <= ARRIVAL_EPSILON ||
+      this.navigation.findPath(unit.position, target).length > 0
+    );
+  }
+
   private assignPath(unit: RuntimeUnit, target: Vector2): boolean {
     const resolvedTarget = this.navigation.resolveTarget(target);
 
@@ -524,6 +769,25 @@ export class Simulation {
     unit.activity = "idle";
   }
 
+  private stopBuildTask(unit: RuntimeUnit): void {
+    unit.buildTask = undefined;
+    unit.waypoints = [];
+    unit.destination = null;
+    unit.activity = "idle";
+  }
+
+  private createBuildingId(kind: string): string {
+    let candidate = `${kind}-${this.nextBuildingSequence}`;
+
+    while (this.buildings.has(candidate)) {
+      this.nextBuildingSequence += 1;
+      candidate = `${kind}-${this.nextBuildingSequence}`;
+    }
+
+    this.nextBuildingSequence += 1;
+    return candidate;
+  }
+
   private ensureStockpile(playerId: string): ResourceStockpile {
     let stockpile = this.stockpiles.get(playerId);
 
@@ -537,6 +801,24 @@ export class Simulation {
     }
 
     return stockpile;
+  }
+
+  private validateBuildingDefinition(definition: BuildingDefinition): void {
+    if (
+      !Number.isInteger(definition.footprint.width) ||
+      definition.footprint.width <= 0 ||
+      !Number.isInteger(definition.footprint.height) ||
+      definition.footprint.height <= 0
+    ) {
+      throw new Error(`Invalid footprint for building: ${definition.kind}`);
+    }
+
+    if (
+      !Number.isFinite(definition.buildTimeSeconds) ||
+      definition.buildTimeSeconds <= 0
+    ) {
+      throw new Error(`Invalid build time for building: ${definition.kind}`);
+    }
   }
 
   private resolveUnitSeparation(): void {
@@ -643,6 +925,36 @@ function separatePair(
   }
 }
 
+function buildingCenter(
+  building: Pick<BuildingState, "position">,
+  definition: BuildingDefinition
+): Vector2 {
+  return {
+    x: building.position.x + definition.footprint.width / 2,
+    y: building.position.y + definition.footprint.height / 2
+  };
+}
+
+function hasResources(
+  stockpile: ResourceStockpile,
+  cost: ResourceStockpile
+): boolean {
+  return (
+    stockpile.wood >= cost.wood &&
+    stockpile.food >= cost.food &&
+    stockpile.gold >= cost.gold
+  );
+}
+
+function spendResources(
+  stockpile: ResourceStockpile,
+  cost: ResourceStockpile
+): void {
+  stockpile.wood -= cost.wood;
+  stockpile.food -= cost.food;
+  stockpile.gold -= cost.gold;
+}
+
 function createFormationTargets(target: Vector2, count: number): Vector2[] {
   if (count <= 1) {
     return [{ ...target }];
@@ -700,6 +1012,23 @@ function cloneDropOffPoint(
   };
 }
 
+function cloneBuilding(building: BuildingState): BuildingState {
+  return {
+    ...building,
+    position: { ...building.position }
+  };
+}
+
+function cloneBuildingDefinition(
+  definition: BuildingDefinition
+): BuildingDefinition {
+  return {
+    ...definition,
+    footprint: { ...definition.footprint },
+    cost: { ...definition.cost }
+  };
+}
+
 function cloneCommand(command: GameCommand): GameCommand {
   if (command.type === "move") {
     return {
@@ -709,9 +1038,17 @@ function cloneCommand(command: GameCommand): GameCommand {
     };
   }
 
+  if (command.type === "gather") {
+    return {
+      ...command,
+      unitIds: [...command.unitIds]
+    };
+  }
+
   return {
     ...command,
-    unitIds: [...command.unitIds]
+    unitIds: [...command.unitIds],
+    position: { ...command.position }
   };
 }
 
