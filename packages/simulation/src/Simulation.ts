@@ -1,18 +1,28 @@
+import { GridNavigation } from "./GridNavigation";
 import type {
   GameCommand,
   SimulationOptions,
   SimulationSnapshot,
-  UnitState
+  UnitState,
+  Vector2
 } from "./types";
 
 export const DEFAULT_TICK_RATE = 20;
+const DEFAULT_MAP_SIZE = 64;
+const FORMATION_SPACING = 0.9;
+const ARRIVAL_EPSILON = 0.000001;
+
+interface RuntimeUnit extends UnitState {
+  waypoints: Vector2[];
+}
 
 export class Simulation {
   readonly tickRate: number;
   readonly tickDurationMs: number;
 
   private tick = 0;
-  private readonly units = new Map<string, UnitState>();
+  private readonly navigation: GridNavigation;
+  private readonly units = new Map<string, RuntimeUnit>();
   private readonly commandQueue: GameCommand[] = [];
 
   constructor(options: SimulationOptions = {}) {
@@ -23,13 +33,22 @@ export class Simulation {
     }
 
     this.tickDurationMs = 1000 / this.tickRate;
+    this.navigation = new GridNavigation(
+      options.map ?? {
+        width: DEFAULT_MAP_SIZE,
+        height: DEFAULT_MAP_SIZE
+      }
+    );
 
     for (const unit of options.units ?? []) {
       if (this.units.has(unit.id)) {
         throw new Error(`Duplicate unit id: ${unit.id}`);
       }
 
-      this.units.set(unit.id, cloneUnit(unit));
+      this.units.set(unit.id, {
+        ...cloneUnit(unit),
+        waypoints: []
+      });
     }
   }
 
@@ -55,51 +74,124 @@ export class Simulation {
 
     for (const command of commands) {
       if (command.type === "move") {
-        for (const unitId of command.unitIds) {
-          const unit = this.units.get(unitId);
-          if (!unit || unit.ownerId !== command.playerId) continue;
-          unit.destination = { ...command.target };
-        }
+        this.applyMoveCommand(command);
       }
     }
   }
 
+  private applyMoveCommand(
+    command: Extract<GameCommand, { type: "move" }>
+  ): void {
+    const controllableUnits = command.unitIds
+      .map((unitId) => this.units.get(unitId))
+      .filter(
+        (unit): unit is RuntimeUnit =>
+          unit !== undefined && unit.ownerId === command.playerId
+      );
+
+    const formationTargets = createFormationTargets(
+      command.target,
+      controllableUnits.length
+    );
+
+    controllableUnits.forEach((unit, index) => {
+      const requestedTarget = formationTargets[index] ?? command.target;
+      const resolvedTarget = this.navigation.resolveTarget(requestedTarget);
+
+      if (!resolvedTarget) {
+        unit.destination = null;
+        unit.waypoints = [];
+        return;
+      }
+
+      const path = this.navigation.findPath(unit.position, resolvedTarget);
+
+      if (path.length === 0) {
+        const alreadyThere =
+          distance(unit.position, resolvedTarget) <= ARRIVAL_EPSILON;
+
+        unit.destination = alreadyThere ? null : unit.destination;
+        unit.waypoints = [];
+        return;
+      }
+
+      unit.destination = { ...resolvedTarget };
+      unit.waypoints = path.map((waypoint) => ({ ...waypoint }));
+    });
+  }
+
   private moveUnits(): void {
-    const secondsPerTick = 1 / this.tickRate;
+    const maxDistancePerTick = 1 / this.tickRate;
 
     for (const unit of this.units.values()) {
-      if (!unit.destination) continue;
+      let remainingDistance = unit.speed * maxDistancePerTick;
 
-      const dx = unit.destination.x - unit.position.x;
-      const dy = unit.destination.y - unit.position.y;
-      const distance = Math.hypot(dx, dy);
+      while (remainingDistance > ARRIVAL_EPSILON && unit.waypoints.length > 0) {
+        const waypoint = unit.waypoints[0];
 
-      if (distance <= Number.EPSILON) {
-        unit.position = { ...unit.destination };
-        unit.destination = null;
-        continue;
+        if (!waypoint) {
+          break;
+        }
+
+        const distanceToWaypoint = distance(unit.position, waypoint);
+
+        if (distanceToWaypoint <= ARRIVAL_EPSILON) {
+          unit.position = { ...waypoint };
+          unit.waypoints.shift();
+          continue;
+        }
+
+        if (distanceToWaypoint <= remainingDistance) {
+          unit.position = { ...waypoint };
+          unit.waypoints.shift();
+          remainingDistance -= distanceToWaypoint;
+          continue;
+        }
+
+        const scale = remainingDistance / distanceToWaypoint;
+        unit.position.x += (waypoint.x - unit.position.x) * scale;
+        unit.position.y += (waypoint.y - unit.position.y) * scale;
+        remainingDistance = 0;
       }
 
-      const maxDistance = unit.speed * secondsPerTick;
-
-      if (distance <= maxDistance) {
-        unit.position = { ...unit.destination };
+      if (unit.waypoints.length === 0) {
         unit.destination = null;
-        continue;
       }
-
-      const scale = maxDistance / distance;
-      unit.position.x += dx * scale;
-      unit.position.y += dy * scale;
     }
   }
 }
 
+function createFormationTargets(target: Vector2, count: number): Vector2[] {
+  if (count <= 1) {
+    return [{ ...target }];
+  }
+
+  const columns = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / columns);
+  const width = (columns - 1) * FORMATION_SPACING;
+  const height = (rows - 1) * FORMATION_SPACING;
+  const targets: Vector2[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+
+    targets.push({
+      x: target.x + column * FORMATION_SPACING - width / 2,
+      y: target.y + row * FORMATION_SPACING - height / 2
+    });
+  }
+
+  return targets;
+}
+
 function cloneUnit(unit: UnitState): UnitState {
   return {
-    ...unit,
+    id: unit.id,
+    ownerId: unit.ownerId,
     position: { ...unit.position },
-    destination: unit.destination ? { ...unit.destination } : null
+    destination: unit.destination ? { ...unit.destination } : null,
+    speed: unit.speed
   };
 }
 
@@ -109,4 +201,8 @@ function cloneCommand(command: GameCommand): GameCommand {
     unitIds: [...command.unitIds],
     target: { ...command.target }
   };
+}
+
+function distance(a: Vector2, b: Vector2): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
