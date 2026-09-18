@@ -18,3 +18,18 @@ export const BUILDING_DEFINITIONS = [
     populationProvided: 0
   }
 ] as const;
+
+
+export const UNIT_DEFINITIONS = [
+  {
+    kind: "militia",
+    displayName: "Militia",
+    cost: { wood: 0, food: 60, gold: 20 },
+    trainTimeSeconds: 12,
+    maxHitPoints: 40,
+    speed: 2.5,
+    attackDamage: 4,
+    attackRange: 0.75,
+    attackCooldownSeconds: 1.4
+  }
+] as const;
