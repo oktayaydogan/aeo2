@@ -43,7 +43,7 @@ export class WorldScene extends Phaser.Scene {
     super("world");
   }
 
-  create(): void {
+  override create(): void {
     this.drawMap();
     this.createUnitViews(this.simulation.getSnapshot());
     this.configureInput();
@@ -52,7 +52,7 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.centerOn(700, 420);
   }
 
-  update(_time: number, delta: number): void {
+  override update(_time: number, delta: number): void {
     this.updateCamera(delta);
 
     this.accumulatorMs += Math.min(delta, 250);
