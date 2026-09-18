@@ -24,7 +24,7 @@ export type UnitActivity =
   | "building"
   | "attacking";
 
-export type BuildingKind = "house" | "barracks";
+export type BuildingKind = "town-center" | "house" | "barracks";
 
 export interface CargoState {
   kind: ResourceKind;
@@ -68,6 +68,13 @@ export interface PlayerStockpileState {
   resources: ResourceStockpile;
 }
 
+export interface PlayerPopulationState {
+  playerId: string;
+  used: number;
+  queued: number;
+  cap: number;
+}
+
 export interface UnitDefinition {
   kind: UnitKind;
   displayName: string;
@@ -78,6 +85,7 @@ export interface UnitDefinition {
   attackDamage: number;
   attackRange: number;
   attackCooldownSeconds: number;
+  populationCost: number;
 }
 
 export interface BuildingDefinition {
@@ -114,6 +122,7 @@ export interface SimulationSnapshot {
   units: readonly UnitState[];
   resources: readonly ResourceNodeState[];
   stockpiles: readonly PlayerStockpileState[];
+  population: readonly PlayerPopulationState[];
   buildings: readonly BuildingState[];
 }
 
@@ -160,6 +169,12 @@ export type GameCommand =
   | TrainCommand
   | AttackCommand;
 
+export interface AiPlayerDefinition {
+  playerId: string;
+  enemyPlayerId: string;
+  thinkIntervalTicks?: number;
+}
+
 export interface SimulationOptions {
   tickRate?: number;
   units?: readonly UnitState[];
@@ -169,6 +184,7 @@ export interface SimulationOptions {
   buildingDefinitions?: readonly BuildingDefinition[];
   unitDefinitions?: readonly UnitDefinition[];
   buildings?: readonly BuildingState[];
+  aiPlayers?: readonly AiPlayerDefinition[];
   stockpiles?: Readonly<
     Record<string, Partial<ResourceStockpile>>
   >;
