@@ -27,7 +27,7 @@ export function App() {
       </section>
 
       <footer className="statusbar">
-        <span>Simulation: fixed 20 Hz</span>
+        <span>Simulation: fixed 20 Hz · 100 entity benchmark</span>
         <span>Rendering: Phaser 4</span>
         <span>Client shell: React</span>
       </footer>
