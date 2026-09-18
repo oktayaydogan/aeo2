@@ -1,0 +1,65 @@
+# AEO2
+
+A browser-first real-time strategy game inspired by the systemic depth and interaction model of classic RTS games.
+
+> This project does not copy Age of Empires II assets, audio, trademarks, maps, or proprietary game data. The goal is an original RTS with a web-native engine and production architecture.
+
+## Current milestone: Phase 0 — RTS engine prototype
+
+The first milestone proves the core loop and technical architecture before content expansion or multiplayer.
+
+### Phase 0 acceptance criteria
+
+- Browser-based desktop game shell
+- Isometric tile projection
+- Camera pan and zoom
+- Unit rendering
+- Single and box selection
+- Right-click move commands
+- Fixed-timestep simulation separated from rendering
+- Grid collision and A* pathfinding
+- 50 units can receive movement orders together
+- 100 units can exist on the map while keeping the game responsive
+
+## Architecture principles
+
+1. **Simulation is independent from rendering.** Phaser renders state; it does not own gameplay rules.
+2. **Commands mutate simulation state.** Input is translated into commands that the simulation validates and applies.
+3. **Fixed timestep.** Gameplay does not depend on render FPS.
+4. **Data-driven content.** Units, buildings, resources, and technologies are definitions rather than hard-coded branches.
+5. **Multiplayer-compatible from day one.** Phase 0 is local, but the simulation must later run authoritatively on a server.
+6. **Original assets and identity.** No copyrighted Age of Empires II game assets are part of the project.
+
+## Planned workspace
+
+```text
+apps/
+  game/          React + Phaser browser client
+  server/        authoritative multiplayer server (later phase)
+packages/
+  simulation/    deterministic-ish fixed tick game simulation
+  protocol/      commands and network contracts (later phase)
+  content/       data-driven game definitions (later phase)
+```
+
+## Milestones
+
+- **v0.1** RTS sandbox
+- **v0.2** Economy
+- **v0.3** Combat
+- **v0.4** Playable single-player MVP
+- **v0.5** Skirmish AI
+- **v0.6** Fog / tech / ages
+- **v0.7** Multiplayer prototype
+- **v0.8** 1v1 multiplayer
+- **v0.9** Accounts / rating / replay
+- **v1.0** Production release
+
+## Development rules
+
+- TypeScript strict mode
+- Small, reviewable commits
+- Gameplay logic must not live in Phaser scene callbacks
+- New mechanics require simulation-level tests
+- Performance-sensitive systems get explicit budgets/benchmarks
+- No authentication/database work until the core RTS loop is proven
