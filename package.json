@@ -1,7 +1,7 @@
 {
   "name": "aeo2",
   "private": true,
-  "packageManager": "pnpm@11.27.0",
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
     "dev": "pnpm --filter @aeo2/game dev",
     "build": "pnpm --recursive --if-present run build",
