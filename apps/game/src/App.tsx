@@ -19,7 +19,7 @@ export function App() {
           <strong>AEO2</strong>
           <span className="milestone">Phase 1 · Economy vertical slice</span>
         </div>
-        <div className="controls">WASD pan · wheel zoom · select · right-click move/gather · H house · B barracks</div>
+        <div className="controls">WASD pan · wheel zoom · select · right-click move/gather/attack · H house · B barracks · M militia</div>
       </header>
 
       <section className="game-frame">
