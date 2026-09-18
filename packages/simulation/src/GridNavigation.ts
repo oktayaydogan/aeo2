@@ -55,6 +55,20 @@ export class GridNavigation {
     );
   }
 
+  isWalkablePoint(point: Vector2): boolean {
+    if (
+      point.x < 0 ||
+      point.y < 0 ||
+      point.x >= this.width ||
+      point.y >= this.height
+    ) {
+      return false;
+    }
+
+    const cell = worldToCell(point);
+    return this.isWalkableCell(cell.x, cell.y);
+  }
+
   resolveTarget(target: Vector2): Vector2 | null {
     const clamped = this.clampWorldPoint(target);
     const requestedCell = worldToCell(clamped);
