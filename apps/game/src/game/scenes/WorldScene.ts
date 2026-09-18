@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { BUILDING_DEFINITIONS } from "@aeo2/content";
+import { BUILDING_DEFINITIONS, UNIT_DEFINITIONS } from "@aeo2/content";
 import {
   DEFAULT_TICK_RATE,
   Simulation,
@@ -59,6 +59,7 @@ export class WorldScene extends Phaser.Scene {
     units: createInitialUnits(),
     resources: RESOURCE_NODES,
     buildingDefinitions: BUILDING_DEFINITIONS,
+    unitDefinitions: UNIT_DEFINITIONS,
     dropOffPoints: [
       {
         id: "town-center-1",
@@ -83,12 +84,14 @@ export class WorldScene extends Phaser.Scene {
   };
 
   private readonly unitViews = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly unitIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly selectedUnitIds = new Set<string>();
   private readonly resourceViews = new Map<string, Phaser.GameObjects.Arc>();
   private readonly resourceLabels = new Map<string, Phaser.GameObjects.Text>();
   private readonly resourceIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly buildingViews = new Map<string, Phaser.GameObjects.Rectangle>();
   private readonly buildingLabels = new Map<string, Phaser.GameObjects.Text>();
+  private readonly buildingIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
 
   private accumulatorMs = 0;
   private metricsElapsedMs = 0;
@@ -100,6 +103,7 @@ export class WorldScene extends Phaser.Scene {
   private economyText?: Phaser.GameObjects.Text;
   private dragSelection?: DragSelectionState;
   private placementKind?: BuildingKind;
+  private selectedBuildingId?: string;
   private wasd?: {
     up: Phaser.Input.Keyboard.Key;
     down: Phaser.Input.Keyboard.Key;
@@ -285,28 +289,39 @@ export class WorldScene extends Phaser.Scene {
 
   private createUnitViews(snapshot: SimulationSnapshot): void {
     for (const unit of snapshot.units) {
-      const point = gridToScreen(unit.position, this.projection);
-      const circle = this.add.circle(
+      this.ensureUnitView(unit);
+    }
+  }
+
+  private ensureUnitView(unit: UnitState): Phaser.GameObjects.Arc {
+    const existing = this.unitViews.get(unit.id);
+
+    if (existing) {
+      return existing;
+    }
+
+    const point = gridToScreen(unit.position, this.projection);
+    const circle = this.add
+      .circle(
         point.x,
         point.y,
-        UNIT_RADIUS,
-        unit.ownerId === "player-1" ? 0xd9c56c : 0xb35c52
-      );
+        unit.kind === "militia" ? UNIT_RADIUS + 1 : UNIT_RADIUS,
+        unitColor(unit),
+        1
+      )
+      .setStrokeStyle(2, 0x101922, 0.8)
+      .setDepth(point.y)
+      .setInteractive({ useHandCursor: true });
 
-      circle.setStrokeStyle(2, 0x101922, 0.8);
-      circle.setDepth(point.y);
-
-      if (unit.ownerId === "player-1") {
-        circle.setInteractive({ useHandCursor: true });
-        circle.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-          if (pointer.leftButtonDown()) {
-            this.selectOnly(unit.id);
-          }
-        });
+    circle.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (pointer.leftButtonDown() && unit.ownerId === "player-1") {
+        this.selectOnly(unit.id);
       }
+    });
 
-      this.unitViews.set(unit.id, circle);
-    }
+    this.unitViews.set(unit.id, circle);
+    this.unitIdByObject.set(circle, unit.id);
+    return circle;
   }
 
   private configureInput(): void {
@@ -328,6 +343,9 @@ export class WorldScene extends Phaser.Scene {
       this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
         .on("down", () => this.setPlacementMode(undefined));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.M)
+        .on("down", () => this.issueTrainCommand());
     }
 
     this.input.on(
@@ -343,9 +361,12 @@ export class WorldScene extends Phaser.Scene {
 
         if (pointer.rightButtonDown()) {
           const resourceId = this.findResourceUnderPointer(currentlyOver);
+          const targetUnitId = this.findEnemyUnitUnderPointer(currentlyOver);
 
           if (resourceId) {
             this.issueGatherCommand(resourceId);
+          } else if (targetUnitId) {
+            this.issueAttackCommand(targetUnitId);
           } else {
             this.issueMoveCommand(pointer);
           }
@@ -357,6 +378,7 @@ export class WorldScene extends Phaser.Scene {
           return;
         }
 
+        this.selectedBuildingId = undefined;
         this.selectedUnitIds.clear();
         this.dragSelection = {
           startScreen: { x: pointer.x, y: pointer.y },
@@ -413,6 +435,56 @@ export class WorldScene extends Phaser.Scene {
     }
 
     return undefined;
+  }
+
+  private findEnemyUnitUnderPointer(
+    currentlyOver: Phaser.GameObjects.GameObject[]
+  ): string | undefined {
+    const snapshot = this.simulation.getSnapshot();
+
+    for (const gameObject of currentlyOver) {
+      const unitId = this.unitIdByObject.get(gameObject);
+
+      if (!unitId) {
+        continue;
+      }
+
+      const unit = snapshot.units.find((entry) => entry.id === unitId);
+
+      if (unit && unit.ownerId !== "player-1") {
+        return unit.id;
+      }
+    }
+
+    return undefined;
+  }
+
+  private issueAttackCommand(targetUnitId: string): void {
+    if (this.selectedUnitIds.size === 0) {
+      return;
+    }
+
+    this.simulation.queueCommand({
+      type: "attack",
+      playerId: "player-1",
+      unitIds: [...this.selectedUnitIds],
+      targetUnitId
+    });
+  }
+
+  private issueTrainCommand(): void {
+    const buildingId = this.selectedBuildingId;
+
+    if (!buildingId) {
+      return;
+    }
+
+    this.simulation.queueCommand({
+      type: "train",
+      playerId: "player-1",
+      buildingId,
+      unitKind: "militia"
+    });
   }
 
   private issueGatherCommand(resourceId: string): void {
@@ -646,9 +718,11 @@ export class WorldScene extends Phaser.Scene {
       `WOOD ${Math.floor(stockpile?.resources.wood ?? 0)}   FOOD ${Math.floor(
         stockpile?.resources.food ?? 0
       )}   GOLD ${Math.floor(stockpile?.resources.gold ?? 0)}`,
-      `selected ${selectedUnits.length} · carrying ${carrying.toFixed(1)}`,
-      `build: H House 25W · B Barracks 75W${this.placementKind ? ` · placing ${this.placementKind}` : ""}`,
-      "Right-click resource: gather · Esc: cancel build"
+      `selected units ${selectedUnits.length} · carrying ${carrying.toFixed(1)}`,
+      this.selectedBuildingId
+        ? `selected building ${this.selectedBuildingId} · M Militia 60F 20G`
+        : `build: H House 25W · B Barracks 75W${this.placementKind ? ` · placing ${this.placementKind}` : ""}`,
+      "Right-click resource: gather · enemy: attack · Esc: cancel build"
     ]);
   }
 
@@ -671,12 +745,21 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private renderSnapshot(snapshot: SimulationSnapshot): void {
-    for (const unit of snapshot.units) {
-      const view = this.unitViews.get(unit.id);
+    const liveUnitIds = new Set(snapshot.units.map((unit) => unit.id));
 
-      if (!view) {
+    for (const [unitId, view] of this.unitViews) {
+      if (liveUnitIds.has(unitId)) {
         continue;
       }
+
+      this.unitIdByObject.delete(view);
+      view.destroy();
+      this.unitViews.delete(unitId);
+      this.selectedUnitIds.delete(unitId);
+    }
+
+    for (const unit of snapshot.units) {
+      const view = this.ensureUnitView(unit);
 
       const point = gridToScreen(unit.position, this.projection);
       view.setPosition(point.x, point.y);
@@ -690,7 +773,9 @@ export class WorldScene extends Phaser.Scene {
             ? 0x8ec5e8
             : unit.activity === "building"
               ? 0xe4ad72
-              : 0xf7e7a9;
+              : unit.activity === "attacking"
+                ? 0xe98673
+                : 0xf7e7a9;
 
       view.setStrokeStyle(selected ? 3 : 2, selected ? activityColor : 0x101922, 1);
     }
@@ -742,6 +827,16 @@ export class WorldScene extends Phaser.Scene {
         )
         .setStrokeStyle(2, 0xe4d2ad, 0.9);
 
+      view.setInteractive({ useHandCursor: true });
+      view.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+        if (pointer.leftButtonDown() && building.ownerId === "player-1") {
+          this.selectedBuildingId = building.id;
+          this.selectedUnitIds.clear();
+          this.setPlacementMode(undefined);
+        }
+      });
+      this.buildingIdByObject.set(view, building.id);
+
       label = this.add
         .text(point.x, point.y + 12, "", {
           fontFamily: "monospace",
@@ -759,24 +854,36 @@ export class WorldScene extends Phaser.Scene {
     view.setPosition(point.x, point.y - 8);
     view.setDepth(point.y);
     view.setAlpha(0.35 + building.progress * 0.65);
+    const selected = this.selectedBuildingId === building.id;
+
     view.setStrokeStyle(
-      building.completed ? 3 : 2,
-      building.completed ? 0xc9ddb5 : 0xe4d2ad,
+      selected ? 4 : building.completed ? 3 : 2,
+      selected
+        ? 0xf7e7a9
+        : building.completed
+          ? 0xc9ddb5
+          : 0xe4d2ad,
       0.9
     );
 
     if (label) {
       label.setPosition(point.x, point.y + 12);
       label.setDepth(point.y + 1);
+      const queue = building.trainingQueue[0];
+      const queueLabel = queue
+        ? ` · ${queue.unitKind.toUpperCase()} ${Math.round(queue.progress * 100)}%`
+        : "";
+
       label.setText(
         `${definition.displayName.toUpperCase()} ${Math.round(
           building.progress * 100
-        )}%`
+        )}%${queueLabel}`
       );
     }
   }
 
   private selectOnly(unitId: string): void {
+    this.selectedBuildingId = undefined;
     this.selectedUnitIds.clear();
     this.selectedUnitIds.add(unitId);
   }
@@ -803,6 +910,7 @@ function createEconomyUnits(): UnitState[] {
         },
         destination: null,
         speed: 2.4,
+        hitPoints: 25,
         activity: "idle",
         cargo: null
       });
@@ -813,13 +921,14 @@ function createEconomyUnits(): UnitState[] {
     units.push({
       id: `enemy-${index + 1}`,
       ownerId: "player-2",
-      kind: "military",
+      kind: "militia",
       position: {
         x: 12.0 + (index % 3) * 0.85,
         y: 11.0 + Math.floor(index / 3) * 0.85
       },
       destination: null,
-      speed: 2.2,
+      speed: 2.5,
+      hitPoints: 40,
       activity: "idle",
       cargo: null
     });
@@ -858,13 +967,14 @@ function createBenchmarkUnits(): UnitState[] {
       units.push({
         id: `enemy-${index}`,
         ownerId: "player-2",
-        kind: "military",
+        kind: "militia",
         position: {
           x: 11.6 + column * 0.68,
           y: 11.2 + row * 0.68
         },
         destination: null,
-        speed: 2.2,
+        speed: 2.5,
+        hitPoints: 40,
         activity: "idle",
         cargo: null
       });
@@ -872,6 +982,14 @@ function createBenchmarkUnits(): UnitState[] {
   }
 
   return units;
+}
+
+function unitColor(unit: UnitState): number {
+  if (unit.ownerId !== "player-1") {
+    return 0xb35c52;
+  }
+
+  return unit.kind === "militia" ? 0x8fb3cf : 0xd9c56c;
 }
 
 function resourceColor(kind: ResourceNodeState["kind"]): number {
