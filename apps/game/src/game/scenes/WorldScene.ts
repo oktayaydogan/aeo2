@@ -954,6 +954,7 @@ function createBenchmarkUnits(): UnitState[] {
         },
         destination: null,
         speed: 2.4,
+        hitPoints: 25,
         activity: "idle",
         cargo: null
       });
