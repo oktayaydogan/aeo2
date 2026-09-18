@@ -1,5 +1,6 @@
 import { GridNavigation } from "./GridNavigation";
 import type {
+  AiPlayerDefinition,
   AttackCommand,
   BuildCommand,
   BuildingDefinition,
@@ -8,6 +9,7 @@ import type {
   GameCommand,
   GatherCommand,
   MoveCommand,
+  PlayerPopulationState,
   PlayerStockpileState,
   ResourceKind,
   ResourceNodeState,
@@ -46,6 +48,7 @@ interface GatherTask {
 
 interface BuildTask {
   buildingId: string;
+  target: Vector2;
 }
 
 interface AttackTask {
@@ -75,6 +78,7 @@ export class Simulation {
   private readonly buildingDefinitions = new Map<string, BuildingDefinition>();
   private readonly unitDefinitions = new Map<string, UnitDefinition>();
   private readonly buildings = new Map<string, BuildingState>();
+  private readonly aiPlayers: readonly AiPlayerDefinition[];
   private readonly commandQueue: GameCommand[] = [];
 
   constructor(options: SimulationOptions = {}) {
@@ -85,6 +89,10 @@ export class Simulation {
     }
 
     this.tickDurationMs = 1000 / this.tickRate;
+    this.aiPlayers = (options.aiPlayers ?? []).map((definition) => ({
+      ...definition,
+      thinkIntervalTicks: definition.thinkIntervalTicks ?? this.tickRate
+    }));
     this.navigation = new GridNavigation(
       options.map ?? {
         width: DEFAULT_MAP_SIZE,
@@ -118,8 +126,17 @@ export class Simulation {
         throw new Error(`Duplicate building id: ${building.id}`);
       }
 
-      this.buildings.set(building.id, cloneBuilding(building));
+      const clonedBuilding = cloneBuilding(building);
+      this.buildings.set(building.id, clonedBuilding);
       this.ensureStockpile(building.ownerId);
+
+      const definition = this.buildingDefinitions.get(building.kind);
+      if (definition) {
+        this.navigation.blockCells(
+          buildingFootprintCells(clonedBuilding, definition)
+        );
+      }
+
       this.nextBuildingSequence += 1;
     }
 
@@ -175,6 +192,7 @@ export class Simulation {
 
   step(): void {
     this.applyQueuedCommands();
+    this.processAi();
     this.moveUnits();
     this.processEconomy();
     this.processConstruction();
@@ -194,6 +212,9 @@ export class Simulation {
           playerId,
           resources: { ...resources }
         })
+      ),
+      population: this.playerIds().map((playerId) =>
+        this.calculatePopulation(playerId)
       ),
       buildings: [...this.buildings.values()].map(cloneBuilding)
     };
@@ -302,7 +323,7 @@ export class Simulation {
       return;
     }
 
-    const builders = command.unitIds
+    const buildersWithTargets = command.unitIds
       .map((unitId) => this.units.get(unitId))
       .filter(
         (unit): unit is RuntimeUnit =>
@@ -310,9 +331,20 @@ export class Simulation {
           unit.ownerId === command.playerId &&
           unit.kind === "villager"
       )
-      .filter((unit) => this.canReachBuildSite(unit, definition, position));
+      .map((unit) => ({
+        unit,
+        target: this.findBuildApproachPosition(unit, definition, position)
+      }))
+      .filter(
+        (
+          entry
+        ): entry is {
+          unit: RuntimeUnit;
+          target: Vector2;
+        } => entry.target !== null
+      );
 
-    if (builders.length === 0) {
+    if (buildersWithTargets.length === 0) {
       return;
     }
 
@@ -337,17 +369,18 @@ export class Simulation {
     };
 
     this.buildings.set(building.id, building);
-    const buildTarget = buildingCenter(building, definition);
+    this.navigation.blockCells(buildingFootprintCells(building, definition));
 
-    for (const unit of builders) {
+    for (const { unit, target } of buildersWithTargets) {
       unit.gatherTask = undefined;
       unit.attackTask = undefined;
       unit.buildTask = {
-        buildingId: building.id
+        buildingId: building.id,
+        target: { ...target }
       };
       unit.activity = "moving";
 
-      if (!this.assignPath(unit, buildTarget)) {
+      if (!this.assignPath(unit, target)) {
         unit.buildTask = undefined;
         unit.activity = "idle";
       }
@@ -362,10 +395,20 @@ export class Simulation {
       !building ||
       building.ownerId !== command.playerId ||
       !building.completed ||
-      building.kind !== "barracks" ||
       !definition ||
-      definition.kind === "villager" ||
+      !this.canBuildingTrainUnit(building.kind, definition.kind) ||
       building.trainingQueue.length >= MAX_TRAINING_QUEUE
+    ) {
+      return;
+    }
+
+    const population = this.calculatePopulation(command.playerId);
+
+    if (
+      population.used +
+        population.queued +
+        definition.populationCost >
+      population.cap
     ) {
       return;
     }
@@ -516,16 +559,9 @@ export class Simulation {
         continue;
       }
 
-      const target = buildingCenter(building, definition);
-      const buildRange =
-        Math.max(
-          definition.footprint.width,
-          definition.footprint.height
-        ) *
-          0.5 +
-        0.5;
+      const target = task.target;
 
-      if (distance(unit.position, target) > buildRange) {
+      if (distance(unit.position, target) > 0.35) {
         unit.activity = "moving";
 
         if (unit.waypoints.length === 0 && !this.assignPath(unit, target)) {
@@ -606,6 +642,61 @@ export class Simulation {
         attackCooldownTicks: 0
       });
       building.trainingQueue.shift();
+    }
+  }
+
+  private processAi(): void {
+    for (const ai of this.aiPlayers) {
+      const interval = Math.max(1, ai.thinkIntervalTicks ?? this.tickRate);
+
+      if (this.tick % interval !== 0) {
+        continue;
+      }
+
+      const enemyUnits = [...this.units.values()]
+        .filter((unit) => unit.ownerId === ai.enemyPlayerId)
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      if (enemyUnits.length === 0) {
+        continue;
+      }
+
+      const attackers = [...this.units.values()]
+        .filter((unit) => {
+          if (unit.ownerId !== ai.playerId || unit.attackTask) {
+            return false;
+          }
+
+          const definition = this.unitDefinitions.get(unit.kind);
+          return Boolean(definition && definition.attackDamage > 0);
+        })
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      for (const attacker of attackers) {
+        const definition = this.unitDefinitions.get(attacker.kind);
+
+        if (!definition) {
+          continue;
+        }
+
+        const target = [...enemyUnits].sort(
+          (a, b) =>
+            distance(attacker.position, a.position) -
+              distance(attacker.position, b.position) ||
+            a.id.localeCompare(b.id)
+        )[0];
+
+        if (!target) {
+          continue;
+        }
+
+        this.clearWorkTasks(attacker);
+        attacker.attackTask = {
+          targetUnitId: target.id
+        };
+        attacker.activity = "attacking";
+        this.routeAttackerToTarget(attacker, target, definition);
+      }
     }
   }
 
@@ -951,6 +1042,16 @@ export class Simulation {
         ) {
           return false;
         }
+
+        if (
+          [...this.units.values()].some(
+            (unit) =>
+              Math.floor(unit.position.x) === cellX &&
+              Math.floor(unit.position.y) === cellY
+          )
+        ) {
+          return false;
+        }
       }
     }
 
@@ -976,20 +1077,52 @@ export class Simulation {
     );
   }
 
-  private canReachBuildSite(
+  private findBuildApproachPosition(
     unit: RuntimeUnit,
     definition: BuildingDefinition,
     position: Vector2
-  ): boolean {
-    const target = {
-      x: position.x + definition.footprint.width / 2,
-      y: position.y + definition.footprint.height / 2
-    };
+  ): Vector2 | null {
+    const candidates: Vector2[] = [];
 
-    return (
-      distance(unit.position, target) <= ARRIVAL_EPSILON ||
-      this.navigation.findPath(unit.position, target).length > 0
-    );
+    for (let x = 0; x < definition.footprint.width; x += 1) {
+      candidates.push(
+        { x: position.x + x + 0.5, y: position.y - 0.5 },
+        {
+          x: position.x + x + 0.5,
+          y: position.y + definition.footprint.height + 0.5
+        }
+      );
+    }
+
+    for (let y = 0; y < definition.footprint.height; y += 1) {
+      candidates.push(
+        { x: position.x - 0.5, y: position.y + y + 0.5 },
+        {
+          x: position.x + definition.footprint.width + 0.5,
+          y: position.y + y + 0.5
+        }
+      );
+    }
+
+    const ordered = candidates
+      .filter((candidate) => this.navigation.isWalkablePoint(candidate))
+      .sort(
+        (a, b) =>
+          distance(unit.position, a) - distance(unit.position, b) ||
+          a.y - b.y ||
+          a.x - b.x
+      );
+
+    for (const candidate of ordered) {
+      if (
+        distance(unit.position, candidate) <= ARRIVAL_EPSILON ||
+        this.navigation.findPath(unit.position, candidate).length > 0
+      ) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   private findSpawnPosition(building: BuildingState): Vector2 | null {
@@ -1115,6 +1248,77 @@ export class Simulation {
     return candidate;
   }
 
+  private playerIds(): string[] {
+    const ids = new Set<string>();
+
+    for (const playerId of this.stockpiles.keys()) {
+      ids.add(playerId);
+    }
+
+    for (const unit of this.units.values()) {
+      ids.add(unit.ownerId);
+    }
+
+    for (const building of this.buildings.values()) {
+      ids.add(building.ownerId);
+    }
+
+    for (const ai of this.aiPlayers) {
+      ids.add(ai.playerId);
+      ids.add(ai.enemyPlayerId);
+    }
+
+    return [...ids].sort();
+  }
+
+  private calculatePopulation(playerId: string): PlayerPopulationState {
+    let used = 0;
+    let queued = 0;
+    let cap = 0;
+
+    for (const unit of this.units.values()) {
+      if (unit.ownerId !== playerId) {
+        continue;
+      }
+
+      used += this.unitDefinitions.get(unit.kind)?.populationCost ?? 1;
+    }
+
+    for (const building of this.buildings.values()) {
+      if (building.ownerId !== playerId) {
+        continue;
+      }
+
+      const buildingDefinition = this.buildingDefinitions.get(building.kind);
+
+      if (building.completed && buildingDefinition) {
+        cap += buildingDefinition.populationProvided;
+      }
+
+      for (const item of building.trainingQueue) {
+        queued +=
+          this.unitDefinitions.get(item.unitKind)?.populationCost ?? 1;
+      }
+    }
+
+    return {
+      playerId,
+      used,
+      queued,
+      cap
+    };
+  }
+
+  private canBuildingTrainUnit(
+    buildingKind: BuildingState["kind"],
+    unitKind: UnitKind
+  ): boolean {
+    return (
+      (buildingKind === "town-center" && unitKind === "villager") ||
+      (buildingKind === "barracks" && unitKind === "militia")
+    );
+  }
+
   private ensureStockpile(playerId: string): ResourceStockpile {
     let stockpile = this.stockpiles.get(playerId);
 
@@ -1161,7 +1365,9 @@ export class Simulation {
       !Number.isFinite(definition.attackRange) ||
       definition.attackRange < 0 ||
       !Number.isFinite(definition.attackDamage) ||
-      definition.attackDamage < 0
+      definition.attackDamage < 0 ||
+      !Number.isFinite(definition.populationCost) ||
+      definition.populationCost <= 0
     ) {
       throw new Error(`Invalid unit definition: ${definition.kind}`);
     }
@@ -1271,6 +1477,24 @@ function separatePair(
   if (navigation.isWalkablePoint(nextB)) {
     b.position = nextB;
   }
+}
+
+function buildingFootprintCells(
+  building: Pick<BuildingState, "position">,
+  definition: BuildingDefinition
+): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+
+  for (let y = 0; y < definition.footprint.height; y += 1) {
+    for (let x = 0; x < definition.footprint.width; x += 1) {
+      cells.push({
+        x: building.position.x + x,
+        y: building.position.y + y
+      });
+    }
+  }
+
+  return cells;
 }
 
 function buildingCenter(
