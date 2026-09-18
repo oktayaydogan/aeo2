@@ -1,5 +1,6 @@
 import { GridNavigation } from "./GridNavigation";
 import type {
+  AttackCommand,
   BuildCommand,
   BuildingDefinition,
   BuildingState,
@@ -13,6 +14,9 @@ import type {
   ResourceStockpile,
   SimulationOptions,
   SimulationSnapshot,
+  TrainCommand,
+  UnitDefinition,
+  UnitKind,
   UnitState,
   Vector2
 } from "./types";
@@ -30,6 +34,7 @@ const GATHER_RANGE = 0.48;
 const DROP_OFF_RANGE = 0.7;
 const VILLAGER_CARRY_CAPACITY = 10;
 const VILLAGER_GATHER_RATE = 4;
+const MAX_TRAINING_QUEUE = 5;
 
 type GatherPhase = "to-resource" | "gathering" | "to-dropoff";
 
@@ -43,10 +48,16 @@ interface BuildTask {
   buildingId: string;
 }
 
+interface AttackTask {
+  targetUnitId: string;
+}
+
 interface RuntimeUnit extends UnitState {
   waypoints: Vector2[];
   gatherTask?: GatherTask;
   buildTask?: BuildTask;
+  attackTask?: AttackTask;
+  attackCooldownTicks: number;
 }
 
 export class Simulation {
@@ -55,12 +66,14 @@ export class Simulation {
 
   private tick = 0;
   private nextBuildingSequence = 1;
+  private nextUnitSequence = 1;
   private readonly navigation: GridNavigation;
   private readonly units = new Map<string, RuntimeUnit>();
   private readonly resources = new Map<string, ResourceNodeState>();
   private readonly dropOffPoints = new Map<string, DropOffPointState>();
   private readonly stockpiles = new Map<string, ResourceStockpile>();
   private readonly buildingDefinitions = new Map<string, BuildingDefinition>();
+  private readonly unitDefinitions = new Map<string, UnitDefinition>();
   private readonly buildings = new Map<string, BuildingState>();
   private readonly commandQueue: GameCommand[] = [];
 
@@ -85,7 +98,19 @@ export class Simulation {
       }
 
       this.validateBuildingDefinition(definition);
-      this.buildingDefinitions.set(definition.kind, cloneBuildingDefinition(definition));
+      this.buildingDefinitions.set(
+        definition.kind,
+        cloneBuildingDefinition(definition)
+      );
+    }
+
+    for (const definition of options.unitDefinitions ?? []) {
+      if (this.unitDefinitions.has(definition.kind)) {
+        throw new Error(`Duplicate unit definition: ${definition.kind}`);
+      }
+
+      this.validateUnitDefinition(definition);
+      this.unitDefinitions.set(definition.kind, cloneUnitDefinition(definition));
     }
 
     for (const building of options.buildings ?? []) {
@@ -105,9 +130,11 @@ export class Simulation {
 
       this.units.set(unit.id, {
         ...cloneUnit(unit),
-        waypoints: []
+        waypoints: [],
+        attackCooldownTicks: 0
       });
       this.ensureStockpile(unit.ownerId);
+      this.nextUnitSequence += 1;
     }
 
     for (const resource of options.resources ?? []) {
@@ -151,6 +178,8 @@ export class Simulation {
     this.moveUnits();
     this.processEconomy();
     this.processConstruction();
+    this.processTraining();
+    this.processCombat();
     this.resolveUnitSeparation();
     this.tick += 1;
   }
@@ -174,12 +203,22 @@ export class Simulation {
     const commands = this.commandQueue.splice(0);
 
     for (const command of commands) {
-      if (command.type === "move") {
-        this.applyMoveCommand(command);
-      } else if (command.type === "gather") {
-        this.applyGatherCommand(command);
-      } else {
-        this.applyBuildCommand(command);
+      switch (command.type) {
+        case "move":
+          this.applyMoveCommand(command);
+          break;
+        case "gather":
+          this.applyGatherCommand(command);
+          break;
+        case "build":
+          this.applyBuildCommand(command);
+          break;
+        case "train":
+          this.applyTrainCommand(command);
+          break;
+        case "attack":
+          this.applyAttackCommand(command);
+          break;
       }
     }
   }
@@ -198,8 +237,7 @@ export class Simulation {
     );
 
     controllableUnits.forEach((unit, index) => {
-      unit.gatherTask = undefined;
-      unit.buildTask = undefined;
+      this.clearWorkTasks(unit);
       unit.activity = "moving";
 
       const requestedTarget = formationTargets[index] ?? command.target;
@@ -229,6 +267,7 @@ export class Simulation {
       }
 
       unit.buildTask = undefined;
+      unit.attackTask = undefined;
       unit.gatherTask = {
         resourceId: resource.id,
         phase: "to-resource"
@@ -271,9 +310,7 @@ export class Simulation {
           unit.ownerId === command.playerId &&
           unit.kind === "villager"
       )
-      .filter((unit) =>
-        this.canReachBuildSite(unit, definition, position)
-      );
+      .filter((unit) => this.canReachBuildSite(unit, definition, position));
 
     if (builders.length === 0) {
       return;
@@ -295,15 +332,16 @@ export class Simulation {
       position,
       progress: 0,
       completed: false,
-      hitPoints: 1
+      hitPoints: 1,
+      trainingQueue: []
     };
 
     this.buildings.set(building.id, building);
-
     const buildTarget = buildingCenter(building, definition);
 
     for (const unit of builders) {
       unit.gatherTask = undefined;
+      unit.attackTask = undefined;
       unit.buildTask = {
         buildingId: building.id
       };
@@ -313,6 +351,67 @@ export class Simulation {
         unit.buildTask = undefined;
         unit.activity = "idle";
       }
+    }
+  }
+
+  private applyTrainCommand(command: TrainCommand): void {
+    const building = this.buildings.get(command.buildingId);
+    const definition = this.unitDefinitions.get(command.unitKind);
+
+    if (
+      !building ||
+      building.ownerId !== command.playerId ||
+      !building.completed ||
+      building.kind !== "barracks" ||
+      !definition ||
+      definition.kind === "villager" ||
+      building.trainingQueue.length >= MAX_TRAINING_QUEUE
+    ) {
+      return;
+    }
+
+    const stockpile = this.ensureStockpile(command.playerId);
+
+    if (!hasResources(stockpile, definition.cost)) {
+      return;
+    }
+
+    spendResources(stockpile, definition.cost);
+    building.trainingQueue.push({
+      unitKind: definition.kind,
+      progress: 0
+    });
+  }
+
+  private applyAttackCommand(command: AttackCommand): void {
+    const target = this.units.get(command.targetUnitId);
+
+    if (!target || target.ownerId === command.playerId) {
+      return;
+    }
+
+    for (const unitId of command.unitIds) {
+      const unit = this.units.get(unitId);
+      const definition = unit
+        ? this.unitDefinitions.get(unit.kind)
+        : undefined;
+
+      if (
+        !unit ||
+        unit.ownerId !== command.playerId ||
+        !definition ||
+        definition.attackDamage <= 0
+      ) {
+        continue;
+      }
+
+      unit.gatherTask = undefined;
+      unit.buildTask = undefined;
+      unit.attackTask = {
+        targetUnitId: target.id
+      };
+      unit.activity = "attacking";
+      this.routeAttackerToTarget(unit, target, definition);
     }
   }
 
@@ -356,6 +455,7 @@ export class Simulation {
         if (
           !unit.gatherTask &&
           !unit.buildTask &&
+          !unit.attackTask &&
           unit.activity === "moving"
         ) {
           unit.activity = "idle";
@@ -417,10 +517,13 @@ export class Simulation {
       }
 
       const target = buildingCenter(building, definition);
-      const buildRange = Math.max(
-        definition.footprint.width,
-        definition.footprint.height
-      ) * 0.5 + 0.5;
+      const buildRange =
+        Math.max(
+          definition.footprint.width,
+          definition.footprint.height
+        ) *
+          0.5 +
+        0.5;
 
       if (distance(unit.position, target) > buildRange) {
         unit.activity = "moving";
@@ -450,6 +553,162 @@ export class Simulation {
         building.completed = true;
         building.hitPoints = definition.maxHitPoints;
       }
+    }
+  }
+
+  private processTraining(): void {
+    for (const building of this.buildings.values()) {
+      if (!building.completed || building.trainingQueue.length === 0) {
+        continue;
+      }
+
+      const item = building.trainingQueue[0];
+
+      if (!item) {
+        continue;
+      }
+
+      const definition = this.unitDefinitions.get(item.unitKind);
+
+      if (!definition) {
+        building.trainingQueue.shift();
+        continue;
+      }
+
+      item.progress = Math.min(
+        item.progress + 1 / (definition.trainTimeSeconds * this.tickRate),
+        1
+      );
+
+      if (item.progress < 1 - ARRIVAL_EPSILON) {
+        continue;
+      }
+
+      const spawnPosition = this.findSpawnPosition(building);
+
+      if (!spawnPosition) {
+        item.progress = 1;
+        continue;
+      }
+
+      const unitId = this.createUnitId(definition.kind);
+      this.units.set(unitId, {
+        id: unitId,
+        ownerId: building.ownerId,
+        kind: definition.kind,
+        position: spawnPosition,
+        destination: null,
+        speed: definition.speed,
+        hitPoints: definition.maxHitPoints,
+        activity: "idle",
+        cargo: null,
+        waypoints: [],
+        attackCooldownTicks: 0
+      });
+      building.trainingQueue.shift();
+    }
+  }
+
+  private processCombat(): void {
+    const deadUnitIds = new Set<string>();
+
+    for (const unit of this.units.values()) {
+      if (unit.attackCooldownTicks > 0) {
+        unit.attackCooldownTicks -= 1;
+      }
+    }
+
+    for (const unit of this.units.values()) {
+      const task = unit.attackTask;
+
+      if (!task || deadUnitIds.has(unit.id)) {
+        continue;
+      }
+
+      const target = this.units.get(task.targetUnitId);
+      const definition = this.unitDefinitions.get(unit.kind);
+
+      if (
+        !target ||
+        target.ownerId === unit.ownerId ||
+        target.hitPoints <= 0 ||
+        !definition ||
+        definition.attackDamage <= 0
+      ) {
+        this.stopAttackTask(unit);
+        continue;
+      }
+
+      const targetDistance = distance(unit.position, target.position);
+
+      if (targetDistance > definition.attackRange) {
+        unit.activity = "attacking";
+
+        const needsRepath =
+          unit.waypoints.length === 0 ||
+          !unit.destination ||
+          distance(unit.destination, target.position) > 0.6;
+
+        if (needsRepath) {
+          this.routeAttackerToTarget(unit, target, definition);
+        }
+
+        continue;
+      }
+
+      unit.waypoints = [];
+      unit.destination = null;
+      unit.activity = "attacking";
+
+      if (unit.attackCooldownTicks > 0) {
+        continue;
+      }
+
+      target.hitPoints -= definition.attackDamage;
+      unit.attackCooldownTicks = Math.max(
+        1,
+        Math.round(definition.attackCooldownSeconds * this.tickRate)
+      );
+
+      if (target.hitPoints <= 0) {
+        deadUnitIds.add(target.id);
+      }
+    }
+
+    if (deadUnitIds.size === 0) {
+      return;
+    }
+
+    for (const unitId of deadUnitIds) {
+      this.units.delete(unitId);
+    }
+
+    for (const unit of this.units.values()) {
+      if (
+        unit.attackTask &&
+        deadUnitIds.has(unit.attackTask.targetUnitId)
+      ) {
+        this.stopAttackTask(unit);
+      }
+    }
+  }
+
+  private routeAttackerToTarget(
+    unit: RuntimeUnit,
+    target: RuntimeUnit,
+    definition: UnitDefinition
+  ): void {
+    if (distance(unit.position, target.position) <= definition.attackRange) {
+      unit.waypoints = [];
+      unit.destination = null;
+      unit.activity = "attacking";
+      return;
+    }
+
+    unit.activity = "attacking";
+
+    if (!this.assignPath(unit, target.position)) {
+      this.stopAttackTask(unit);
     }
   }
 
@@ -733,6 +992,49 @@ export class Simulation {
     );
   }
 
+  private findSpawnPosition(building: BuildingState): Vector2 | null {
+    const definition = this.buildingDefinitions.get(building.kind);
+
+    if (!definition) {
+      return null;
+    }
+
+    const center = buildingCenter(building, definition);
+    const candidates: Vector2[] = [
+      {
+        x: building.position.x + definition.footprint.width + 0.5,
+        y: center.y
+      },
+      {
+        x: center.x,
+        y: building.position.y + definition.footprint.height + 0.5
+      },
+      {
+        x: building.position.x - 0.5,
+        y: center.y
+      },
+      {
+        x: center.x,
+        y: building.position.y - 0.5
+      }
+    ];
+
+    for (const candidate of candidates) {
+      const resolved = this.navigation.resolveTarget(candidate);
+
+      if (
+        resolved &&
+        [...this.units.values()].every(
+          (unit) => distance(unit.position, resolved) >= MIN_UNIT_DISTANCE
+        )
+      ) {
+        return resolved;
+      }
+    }
+
+    return null;
+  }
+
   private assignPath(unit: RuntimeUnit, target: Vector2): boolean {
     const resolvedTarget = this.navigation.resolveTarget(target);
 
@@ -762,6 +1064,12 @@ export class Simulation {
     return true;
   }
 
+  private clearWorkTasks(unit: RuntimeUnit): void {
+    unit.gatherTask = undefined;
+    unit.buildTask = undefined;
+    unit.attackTask = undefined;
+  }
+
   private stopGatherTask(unit: RuntimeUnit): void {
     unit.gatherTask = undefined;
     unit.waypoints = [];
@@ -776,6 +1084,13 @@ export class Simulation {
     unit.activity = "idle";
   }
 
+  private stopAttackTask(unit: RuntimeUnit): void {
+    unit.attackTask = undefined;
+    unit.waypoints = [];
+    unit.destination = null;
+    unit.activity = "idle";
+  }
+
   private createBuildingId(kind: string): string {
     let candidate = `${kind}-${this.nextBuildingSequence}`;
 
@@ -785,6 +1100,18 @@ export class Simulation {
     }
 
     this.nextBuildingSequence += 1;
+    return candidate;
+  }
+
+  private createUnitId(kind: UnitKind): string {
+    let candidate = `${kind}-${this.nextUnitSequence}`;
+
+    while (this.units.has(candidate)) {
+      this.nextUnitSequence += 1;
+      candidate = `${kind}-${this.nextUnitSequence}`;
+    }
+
+    this.nextUnitSequence += 1;
     return candidate;
   }
 
@@ -821,6 +1148,25 @@ export class Simulation {
     }
   }
 
+  private validateUnitDefinition(definition: UnitDefinition): void {
+    if (
+      !Number.isFinite(definition.trainTimeSeconds) ||
+      definition.trainTimeSeconds <= 0 ||
+      !Number.isFinite(definition.maxHitPoints) ||
+      definition.maxHitPoints <= 0 ||
+      !Number.isFinite(definition.speed) ||
+      definition.speed <= 0 ||
+      !Number.isFinite(definition.attackCooldownSeconds) ||
+      definition.attackCooldownSeconds <= 0 ||
+      !Number.isFinite(definition.attackRange) ||
+      definition.attackRange < 0 ||
+      !Number.isFinite(definition.attackDamage) ||
+      definition.attackDamage < 0
+    ) {
+      throw new Error(`Invalid unit definition: ${definition.kind}`);
+    }
+  }
+
   private resolveUnitSeparation(): void {
     const units = [...this.units.values()];
 
@@ -839,7 +1185,9 @@ export class Simulation {
 
         for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
           for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-            const bucket = buckets.get(`${cellX + offsetX},${cellY + offsetY}`);
+            const bucket = buckets.get(
+              `${cellX + offsetX},${cellY + offsetY}`
+            );
 
             if (!bucket) {
               continue;
@@ -987,6 +1335,7 @@ function cloneUnit(unit: UnitState): UnitState {
     position: { ...unit.position },
     destination: unit.destination ? { ...unit.destination } : null,
     speed: unit.speed,
+    hitPoints: unit.hitPoints,
     activity: unit.activity,
     cargo: unit.cargo ? { ...unit.cargo } : null
   };
@@ -1015,7 +1364,8 @@ function cloneDropOffPoint(
 function cloneBuilding(building: BuildingState): BuildingState {
   return {
     ...building,
-    position: { ...building.position }
+    position: { ...building.position },
+    trainingQueue: building.trainingQueue.map((item) => ({ ...item }))
   };
 }
 
@@ -1029,27 +1379,40 @@ function cloneBuildingDefinition(
   };
 }
 
-function cloneCommand(command: GameCommand): GameCommand {
-  if (command.type === "move") {
-    return {
-      ...command,
-      unitIds: [...command.unitIds],
-      target: { ...command.target }
-    };
-  }
-
-  if (command.type === "gather") {
-    return {
-      ...command,
-      unitIds: [...command.unitIds]
-    };
-  }
-
+function cloneUnitDefinition(definition: UnitDefinition): UnitDefinition {
   return {
-    ...command,
-    unitIds: [...command.unitIds],
-    position: { ...command.position }
+    ...definition,
+    cost: { ...definition.cost }
   };
+}
+
+function cloneCommand(command: GameCommand): GameCommand {
+  switch (command.type) {
+    case "move":
+      return {
+        ...command,
+        unitIds: [...command.unitIds],
+        target: { ...command.target }
+      };
+    case "gather":
+      return {
+        ...command,
+        unitIds: [...command.unitIds]
+      };
+    case "build":
+      return {
+        ...command,
+        unitIds: [...command.unitIds],
+        position: { ...command.position }
+      };
+    case "train":
+      return { ...command };
+    case "attack":
+      return {
+        ...command,
+        unitIds: [...command.unitIds]
+      };
+  }
 }
 
 function distance(a: Vector2, b: Vector2): number {
