@@ -15,13 +15,14 @@ export interface GridMapDefinition {
 }
 
 export type ResourceKind = "wood" | "food" | "gold";
-export type UnitKind = "villager" | "military";
+export type UnitKind = "villager" | "militia";
 export type UnitActivity =
   | "idle"
   | "moving"
   | "gathering"
   | "returning"
-  | "building";
+  | "building"
+  | "attacking";
 
 export type BuildingKind = "house" | "barracks";
 
@@ -37,6 +38,7 @@ export interface UnitState {
   position: Vector2;
   destination: Vector2 | null;
   speed: number;
+  hitPoints: number;
   activity: UnitActivity;
   cargo: CargoState | null;
 }
@@ -66,6 +68,18 @@ export interface PlayerStockpileState {
   resources: ResourceStockpile;
 }
 
+export interface UnitDefinition {
+  kind: UnitKind;
+  displayName: string;
+  cost: ResourceStockpile;
+  trainTimeSeconds: number;
+  maxHitPoints: number;
+  speed: number;
+  attackDamage: number;
+  attackRange: number;
+  attackCooldownSeconds: number;
+}
+
 export interface BuildingDefinition {
   kind: BuildingKind;
   displayName: string;
@@ -79,6 +93,11 @@ export interface BuildingDefinition {
   populationProvided: number;
 }
 
+export interface TrainingQueueItemState {
+  unitKind: UnitKind;
+  progress: number;
+}
+
 export interface BuildingState {
   id: string;
   ownerId: string;
@@ -87,6 +106,7 @@ export interface BuildingState {
   progress: number;
   completed: boolean;
   hitPoints: number;
+  trainingQueue: TrainingQueueItemState[];
 }
 
 export interface SimulationSnapshot {
@@ -119,7 +139,26 @@ export interface BuildCommand {
   position: Vector2;
 }
 
-export type GameCommand = MoveCommand | GatherCommand | BuildCommand;
+export interface TrainCommand {
+  type: "train";
+  playerId: string;
+  buildingId: string;
+  unitKind: UnitKind;
+}
+
+export interface AttackCommand {
+  type: "attack";
+  playerId: string;
+  unitIds: readonly string[];
+  targetUnitId: string;
+}
+
+export type GameCommand =
+  | MoveCommand
+  | GatherCommand
+  | BuildCommand
+  | TrainCommand
+  | AttackCommand;
 
 export interface SimulationOptions {
   tickRate?: number;
@@ -128,6 +167,7 @@ export interface SimulationOptions {
   resources?: readonly ResourceNodeState[];
   dropOffPoints?: readonly DropOffPointState[];
   buildingDefinitions?: readonly BuildingDefinition[];
+  unitDefinitions?: readonly UnitDefinition[];
   buildings?: readonly BuildingState[];
   stockpiles?: Readonly<
     Record<string, Partial<ResourceStockpile>>
