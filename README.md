@@ -10,16 +10,17 @@ The first milestone proves the core loop and technical architecture before conte
 
 ### Phase 0 acceptance criteria
 
-- Browser-based desktop game shell
-- Isometric tile projection
-- Camera pan and zoom
-- Unit rendering
-- Single and box selection
-- Right-click move commands
-- Fixed-timestep simulation separated from rendering
-- Grid collision and A* pathfinding
-- 50 units can receive movement orders together
-- 100 units can exist on the map while keeping the game responsive
+- [x] Browser-based desktop game shell
+- [x] Isometric tile projection
+- [x] Camera pan and zoom
+- [x] Unit rendering
+- [x] Single and box selection
+- [x] Right-click move commands
+- [x] Fixed-timestep simulation separated from rendering
+- [x] Grid collision and A* pathfinding
+- [x] 50 units can receive movement orders together
+- [x] 100 units can exist on the map with spatial-hash local separation
+- [ ] Verify performance budget in-browser on representative desktop hardware
 
 ## Architecture principles
 
