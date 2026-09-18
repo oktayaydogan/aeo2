@@ -43,7 +43,7 @@ export class WorldScene extends Phaser.Scene {
     super("world");
   }
 
-  override create(): void {
+  create(): void {
     this.drawMap();
     this.createUnitViews(this.simulation.getSnapshot());
     this.configureInput();
