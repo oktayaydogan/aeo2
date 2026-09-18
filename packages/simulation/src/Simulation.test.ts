@@ -1,13 +1,78 @@
 import { describe, expect, it } from "vitest";
 import { Simulation } from "./Simulation";
-import type { SimulationSnapshot, UnitState } from "./types";
+import type {
+  BuildingDefinition,
+  SimulationSnapshot,
+  UnitDefinition,
+  UnitState
+} from "./types";
 
-function villager(): UnitState {
+const HOUSE: BuildingDefinition = {
+  kind: "house",
+  displayName: "House",
+  footprint: { width: 2, height: 2 },
+  cost: { wood: 25, food: 0, gold: 0 },
+  buildTimeSeconds: 8,
+  maxHitPoints: 550,
+  populationProvided: 5
+};
+
+const BARRACKS: BuildingDefinition = {
+  kind: "barracks",
+  displayName: "Barracks",
+  footprint: { width: 3, height: 3 },
+  cost: { wood: 75, food: 0, gold: 0 },
+  buildTimeSeconds: 15,
+  maxHitPoints: 1200,
+  populationProvided: 0
+};
+
+const TOWN_CENTER: BuildingDefinition = {
+  kind: "town-center",
+  displayName: "Town Center",
+  footprint: { width: 4, height: 4 },
+  cost: { wood: 275, food: 0, gold: 100 },
+  buildTimeSeconds: 40,
+  maxHitPoints: 2400,
+  populationProvided: 10
+};
+
+const VILLAGER: UnitDefinition = {
+  kind: "villager",
+  displayName: "Villager",
+  cost: { wood: 0, food: 50, gold: 0 },
+  trainTimeSeconds: 10,
+  maxHitPoints: 25,
+  speed: 2.4,
+  attackDamage: 0,
+  attackRange: 0,
+  attackCooldownSeconds: 1,
+  populationCost: 1
+};
+
+const MILITIA: UnitDefinition = {
+  kind: "militia",
+  displayName: "Militia",
+  cost: { wood: 0, food: 60, gold: 20 },
+  trainTimeSeconds: 12,
+  maxHitPoints: 40,
+  speed: 2.5,
+  attackDamage: 4,
+  attackRange: 0.75,
+  attackCooldownSeconds: 1.4,
+  populationCost: 1
+};
+
+function villager(
+  id = "villager-1",
+  ownerId = "player-1",
+  position = { x: 2, y: 2 }
+): UnitState {
   return {
-    id: "villager-1",
-    ownerId: "player-1",
+    id,
+    ownerId,
     kind: "villager",
-    position: { x: 2, y: 2 },
+    position: { ...position },
     destination: null,
     speed: 2.4,
     hitPoints: 25,
@@ -16,37 +81,23 @@ function villager(): UnitState {
   };
 }
 
-function createEconomySimulation(): Simulation {
-  return new Simulation({
-    tickRate: 20,
-    map: {
-      width: 20,
-      height: 20
-    },
-    units: [villager()],
-    resources: [
-      {
-        id: "tree-1",
-        kind: "wood",
-        position: { x: 4, y: 2 },
-        amount: 30
-      }
-    ],
-    dropOffPoints: [
-      {
-        id: "town-center-1",
-        ownerId: "player-1",
-        position: { x: 1, y: 2 }
-      }
-    ],
-    stockpiles: {
-      "player-1": {
-        wood: 0,
-        food: 0,
-        gold: 0
-      }
-    }
-  });
+function militia(
+  id: string,
+  ownerId: string,
+  position: { x: number; y: number },
+  hitPoints = 40
+): UnitState {
+  return {
+    id,
+    ownerId,
+    kind: "militia",
+    position: { ...position },
+    destination: null,
+    speed: 2.5,
+    hitPoints,
+    activity: "idle",
+    cargo: null
+  };
 }
 
 function runSteps(simulation: Simulation, count: number): SimulationSnapshot {
@@ -58,6 +109,32 @@ function runSteps(simulation: Simulation, count: number): SimulationSnapshot {
 }
 
 describe("Simulation economy loop", () => {
+  function createEconomySimulation(): Simulation {
+    return new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      units: [villager()],
+      resources: [
+        {
+          id: "tree-1",
+          kind: "wood",
+          position: { x: 4, y: 2 },
+          amount: 30
+        }
+      ],
+      dropOffPoints: [
+        {
+          id: "town-center-dropoff",
+          ownerId: "player-1",
+          position: { x: 1, y: 2 }
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 0, food: 0, gold: 0 }
+      }
+    });
+  }
+
   it("gathers a resource, returns it, and deposits into the player stockpile", () => {
     const simulation = createEconomySimulation();
 
@@ -72,9 +149,7 @@ describe("Simulation economy loop", () => {
     const stockpile = snapshot.stockpiles.find(
       (entry) => entry.playerId === "player-1"
     );
-    const resource = snapshot.resources.find(
-      (entry) => entry.id === "tree-1"
-    );
+    const resource = snapshot.resources.find((entry) => entry.id === "tree-1");
     const unit = snapshot.units.find((entry) => entry.id === "villager-1");
 
     expect(stockpile?.resources.wood).toBeCloseTo(30, 5);
@@ -94,7 +169,6 @@ describe("Simulation economy loop", () => {
     });
 
     runSteps(simulation, 30);
-
     const beforeMove = simulation.getSnapshot().resources[0]?.amount;
 
     simulation.queueCommand({
@@ -105,9 +179,7 @@ describe("Simulation economy loop", () => {
     });
 
     const snapshot = runSteps(simulation, 60);
-    const resource = snapshot.resources.find(
-      (entry) => entry.id === "tree-1"
-    );
+    const resource = snapshot.resources.find((entry) => entry.id === "tree-1");
 
     expect(resource?.amount).toBeCloseTo(beforeMove ?? 0, 5);
   });
@@ -123,9 +195,7 @@ describe("Simulation economy loop", () => {
     });
 
     const snapshot = runSteps(simulation, 200);
-    const resource = snapshot.resources.find(
-      (entry) => entry.id === "tree-1"
-    );
+    const resource = snapshot.resources.find((entry) => entry.id === "tree-1");
     const stockpile = snapshot.stockpiles.find(
       (entry) => entry.playerId === "player-1"
     );
@@ -135,33 +205,15 @@ describe("Simulation economy loop", () => {
   });
 });
 
-
 describe("Simulation building construction", () => {
-  const houseDefinition = {
-    kind: "house" as const,
-    displayName: "House",
-    footprint: { width: 2, height: 2 },
-    cost: { wood: 25, food: 0, gold: 0 },
-    buildTimeSeconds: 8,
-    maxHitPoints: 550,
-    populationProvided: 5
-  };
-
   function createBuildingSimulation(wood: number): Simulation {
     return new Simulation({
       tickRate: 20,
-      map: {
-        width: 20,
-        height: 20
-      },
+      map: { width: 20, height: 20 },
       units: [villager()],
-      buildingDefinitions: [houseDefinition],
+      buildingDefinitions: [HOUSE],
       stockpiles: {
-        "player-1": {
-          wood,
-          food: 0,
-          gold: 0
-        }
+        "player-1": { wood, food: 0, gold: 0 }
       }
     });
   }
@@ -182,14 +234,14 @@ describe("Simulation building construction", () => {
     const stockpile = snapshot.stockpiles.find(
       (entry) => entry.playerId === "player-1"
     );
-    const unit = snapshot.units.find((entry) => entry.id === "villager-1");
+    const population = snapshot.population.find(
+      (entry) => entry.playerId === "player-1"
+    );
 
-    expect(building?.kind).toBe("house");
     expect(building?.completed).toBe(true);
-    expect(building?.progress).toBe(1);
     expect(building?.hitPoints).toBe(550);
     expect(stockpile?.resources.wood).toBe(75);
-    expect(unit?.activity).toBe("idle");
+    expect(population?.cap).toBe(5);
   });
 
   it("rejects construction when the player cannot afford it", () => {
@@ -203,9 +255,7 @@ describe("Simulation building construction", () => {
       position: { x: 4, y: 4 }
     });
 
-    const snapshot = runSteps(simulation, 20);
-
-    expect(snapshot.buildings).toHaveLength(0);
+    expect(runSteps(simulation, 20).buildings).toHaveLength(0);
   });
 
   it("rejects overlapping building placement", () => {
@@ -228,44 +278,79 @@ describe("Simulation building construction", () => {
       position: { x: 5, y: 5 }
     });
 
-    const snapshot = runSteps(simulation, 20);
+    expect(runSteps(simulation, 20).buildings).toHaveLength(1);
+  });
 
-    expect(snapshot.buildings).toHaveLength(1);
+  it("routes movement around building footprints", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 12, height: 10 },
+      units: [villager("villager-1", "player-1", { x: 2.5, y: 4.5 })],
+      buildingDefinitions: [HOUSE],
+      buildings: [
+        {
+          id: "house-1",
+          ownerId: "player-1",
+          kind: "house",
+          position: { x: 4, y: 3 },
+          progress: 1,
+          completed: true,
+          hitPoints: 550,
+          trainingQueue: []
+        }
+      ]
+    });
+
+    simulation.queueCommand({
+      type: "move",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      target: { x: 8.5, y: 4.5 }
+    });
+
+    for (let index = 0; index < 120; index += 1) {
+      simulation.step();
+      const unit = simulation
+        .getSnapshot()
+        .units.find((entry) => entry.id === "villager-1");
+
+      expect(unit).toBeDefined();
+
+      const cellX = Math.floor(unit?.position.x ?? 0);
+      const cellY = Math.floor(unit?.position.y ?? 0);
+      const insideHouse = cellX >= 4 && cellX <= 5 && cellY >= 3 && cellY <= 4;
+
+      expect(insideHouse).toBe(false);
+    }
+
+    const unit = simulation
+      .getSnapshot()
+      .units.find((entry) => entry.id === "villager-1");
+
+    expect(unit?.position.x).toBeCloseTo(8.5, 1);
+    expect(unit?.position.y).toBeCloseTo(4.5, 1);
   });
 });
 
-
-describe("Simulation unit training", () => {
-  const barracksDefinition = {
-    kind: "barracks" as const,
-    displayName: "Barracks",
-    footprint: { width: 3, height: 3 },
-    cost: { wood: 75, food: 0, gold: 0 },
-    buildTimeSeconds: 15,
-    maxHitPoints: 1200,
-    populationProvided: 0
-  };
-
-  const militiaDefinition = {
-    kind: "militia" as const,
-    displayName: "Militia",
-    cost: { wood: 0, food: 60, gold: 20 },
-    trainTimeSeconds: 12,
-    maxHitPoints: 40,
-    speed: 2.5,
-    attackDamage: 4,
-    attackRange: 0.75,
-    attackCooldownSeconds: 1.4
-  };
-
-  it("trains a militia from a completed barracks and deducts its cost", () => {
+describe("Simulation population and training", () => {
+  it("trains a militia when population capacity is available", () => {
     const simulation = new Simulation({
       tickRate: 20,
       map: { width: 20, height: 20 },
       units: [villager()],
-      buildingDefinitions: [barracksDefinition],
-      unitDefinitions: [militiaDefinition],
+      buildingDefinitions: [HOUSE, BARRACKS],
+      unitDefinitions: [MILITIA],
       buildings: [
+        {
+          id: "house-1",
+          ownerId: "player-1",
+          kind: "house",
+          position: { x: 10, y: 10 },
+          progress: 1,
+          completed: true,
+          hitPoints: 550,
+          trainingQueue: []
+        },
         {
           id: "barracks-1",
           ownerId: "player-1",
@@ -278,11 +363,7 @@ describe("Simulation unit training", () => {
         }
       ],
       stockpiles: {
-        "player-1": {
-          wood: 0,
-          food: 100,
-          gold: 100
-        }
+        "player-1": { wood: 0, food: 100, gold: 100 }
       }
     });
 
@@ -294,63 +375,156 @@ describe("Simulation unit training", () => {
     });
 
     const snapshot = runSteps(simulation, 300);
-    const militia = snapshot.units.find((unit) => unit.kind === "militia");
+    const militiaUnit = snapshot.units.find((unit) => unit.kind === "militia");
     const stockpile = snapshot.stockpiles.find(
       (entry) => entry.playerId === "player-1"
     );
+    const population = snapshot.population.find(
+      (entry) => entry.playerId === "player-1"
+    );
+
+    expect(militiaUnit?.ownerId).toBe("player-1");
+    expect(stockpile?.resources.food).toBe(40);
+    expect(stockpile?.resources.gold).toBe(80);
+    expect(population?.used).toBe(2);
+    expect(population?.queued).toBe(0);
+    expect(population?.cap).toBe(5);
+  });
+
+  it("blocks training at the population cap without charging resources", () => {
+    const units = Array.from({ length: 5 }, (_, index) =>
+      villager(
+        `villager-${index + 1}`,
+        "player-1",
+        { x: 1 + index * 0.5, y: 1 }
+      )
+    );
+
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      units,
+      buildingDefinitions: [HOUSE, BARRACKS],
+      unitDefinitions: [VILLAGER, MILITIA],
+      buildings: [
+        {
+          id: "house-1",
+          ownerId: "player-1",
+          kind: "house",
+          position: { x: 10, y: 10 },
+          progress: 1,
+          completed: true,
+          hitPoints: 550,
+          trainingQueue: []
+        },
+        {
+          id: "barracks-1",
+          ownerId: "player-1",
+          kind: "barracks",
+          position: { x: 5, y: 5 },
+          progress: 1,
+          completed: true,
+          hitPoints: 1200,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 0, food: 100, gold: 100 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "train",
+      playerId: "player-1",
+      buildingId: "barracks-1",
+      unitKind: "militia"
+    });
+    simulation.step();
+
+    const snapshot = simulation.getSnapshot();
     const barracks = snapshot.buildings.find(
       (building) => building.id === "barracks-1"
     );
+    const stockpile = snapshot.stockpiles.find(
+      (entry) => entry.playerId === "player-1"
+    );
 
-    expect(militia?.ownerId).toBe("player-1");
-    expect(militia?.hitPoints).toBe(40);
-    expect(stockpile?.resources.food).toBe(40);
-    expect(stockpile?.resources.gold).toBe(80);
+    expect(snapshot.population[0]).toMatchObject({
+      used: 5,
+      queued: 0,
+      cap: 5
+    });
     expect(barracks?.trainingQueue).toHaveLength(0);
+    expect(stockpile?.resources.food).toBe(100);
+    expect(stockpile?.resources.gold).toBe(100);
+  });
+
+  it("trains villagers from the Town Center", () => {
+    const units = Array.from({ length: 8 }, (_, index) =>
+      villager(
+        `villager-${index + 1}`,
+        "player-1",
+        { x: 1 + (index % 4) * 0.7, y: 1 + Math.floor(index / 4) * 0.7 }
+      )
+    );
+
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      units,
+      buildingDefinitions: [TOWN_CENTER],
+      unitDefinitions: [VILLAGER],
+      buildings: [
+        {
+          id: "town-center-1",
+          ownerId: "player-1",
+          kind: "town-center",
+          position: { x: 6, y: 6 },
+          progress: 1,
+          completed: true,
+          hitPoints: 2400,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 0, food: 100, gold: 0 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "train",
+      playerId: "player-1",
+      buildingId: "town-center-1",
+      unitKind: "villager"
+    });
+
+    const snapshot = runSteps(simulation, 240);
+    const population = snapshot.population.find(
+      (entry) => entry.playerId === "player-1"
+    );
+
+    expect(snapshot.units.filter((unit) => unit.kind === "villager")).toHaveLength(9);
+    expect(population).toMatchObject({
+      used: 9,
+      queued: 0,
+      cap: 10
+    });
+    expect(
+      snapshot.stockpiles.find((entry) => entry.playerId === "player-1")
+        ?.resources.food
+    ).toBe(50);
   });
 });
 
 describe("Simulation melee combat", () => {
-  const militiaDefinition = {
-    kind: "militia" as const,
-    displayName: "Militia",
-    cost: { wood: 0, food: 60, gold: 20 },
-    trainTimeSeconds: 12,
-    maxHitPoints: 40,
-    speed: 2.5,
-    attackDamage: 4,
-    attackRange: 0.75,
-    attackCooldownSeconds: 1.4
-  };
-
   it("chases and kills an enemy unit using attack cooldowns", () => {
     const simulation = new Simulation({
       tickRate: 20,
       map: { width: 20, height: 20 },
-      unitDefinitions: [militiaDefinition],
+      unitDefinitions: [MILITIA],
       units: [
-        {
-          id: "militia-player",
-          ownerId: "player-1",
-          kind: "militia",
-          position: { x: 2, y: 2 },
-          destination: null,
-          speed: 2.5,
-          hitPoints: 40,
-          activity: "idle",
-          cargo: null
-        },
-        {
-          id: "militia-enemy",
-          ownerId: "player-2",
-          kind: "militia",
-          position: { x: 4, y: 2 },
-          destination: null,
-          speed: 2.5,
-          hitPoints: 12,
-          activity: "idle",
-          cargo: null
-        }
+        militia("militia-player", "player-1", { x: 2, y: 2 }),
+        militia("militia-enemy", "player-2", { x: 4, y: 2 }, 12)
       ]
     });
 
@@ -363,11 +537,33 @@ describe("Simulation melee combat", () => {
 
     const snapshot = runSteps(simulation, 140);
 
-    expect(
-      snapshot.units.some((unit) => unit.id === "militia-enemy")
-    ).toBe(false);
+    expect(snapshot.units.some((unit) => unit.id === "militia-enemy")).toBe(false);
     expect(
       snapshot.units.find((unit) => unit.id === "militia-player")?.activity
     ).toBe("idle");
+  });
+
+  it("lets deterministic enemy AI acquire and attack the nearest player unit", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      unitDefinitions: [MILITIA],
+      units: [
+        villager("player-target", "player-1", { x: 2, y: 2 }),
+        militia("enemy-ai", "player-2", { x: 6, y: 2 })
+      ],
+      aiPlayers: [
+        {
+          playerId: "player-2",
+          enemyPlayerId: "player-1",
+          thinkIntervalTicks: 1
+        }
+      ]
+    });
+
+    const snapshot = runSteps(simulation, 260);
+
+    expect(snapshot.units.some((unit) => unit.id === "player-target")).toBe(false);
+    expect(snapshot.units.some((unit) => unit.id === "enemy-ai")).toBe(true);
   });
 });
