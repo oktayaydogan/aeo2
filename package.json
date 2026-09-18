@@ -1,12 +1,12 @@
 {
   "name": "aeo2",
   "private": true,
-  "packageManager": "pnpm@10.33.4",
+  "packageManager": "npm@10.9.0",
   "scripts": {
-    "dev": "pnpm --filter @aeo2/game dev",
-    "build": "pnpm --recursive --if-present run build",
-    "test": "pnpm --recursive --if-present run test",
-    "typecheck": "pnpm --recursive --if-present run typecheck"
+    "dev": "npm run dev --workspace=@aeo2/game",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": {
     "node": "22.x"
