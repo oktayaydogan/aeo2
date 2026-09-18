@@ -1,7 +1,10 @@
 import Phaser from "phaser";
+import { BUILDING_DEFINITIONS } from "@aeo2/content";
 import {
   DEFAULT_TICK_RATE,
   Simulation,
+  type BuildingKind,
+  type BuildingState,
   type ResourceNodeState,
   type SimulationSnapshot,
   type UnitState
@@ -55,6 +58,7 @@ export class WorldScene extends Phaser.Scene {
     map: PROTOTYPE_MAP,
     units: createInitialUnits(),
     resources: RESOURCE_NODES,
+    buildingDefinitions: BUILDING_DEFINITIONS,
     dropOffPoints: [
       {
         id: "town-center-1",
@@ -64,7 +68,7 @@ export class WorldScene extends Phaser.Scene {
     ],
     stockpiles: {
       "player-1": {
-        wood: 0,
+        wood: 100,
         food: 0,
         gold: 0
       }
@@ -83,15 +87,19 @@ export class WorldScene extends Phaser.Scene {
   private readonly resourceViews = new Map<string, Phaser.GameObjects.Arc>();
   private readonly resourceLabels = new Map<string, Phaser.GameObjects.Text>();
   private readonly resourceIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
+  private readonly buildingViews = new Map<string, Phaser.GameObjects.Rectangle>();
+  private readonly buildingLabels = new Map<string, Phaser.GameObjects.Text>();
 
   private accumulatorMs = 0;
   private metricsElapsedMs = 0;
   private simulationCostMs = 0;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
+  private placementGraphics?: Phaser.GameObjects.Graphics;
   private metricsText?: Phaser.GameObjects.Text;
   private economyText?: Phaser.GameObjects.Text;
   private dragSelection?: DragSelectionState;
+  private placementKind?: BuildingKind;
   private wasd?: {
     up: Phaser.Input.Keyboard.Key;
     down: Phaser.Input.Keyboard.Key;
@@ -115,6 +123,10 @@ export class WorldScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(100_000);
 
+    this.placementGraphics = this.add
+      .graphics()
+      .setDepth(90_000);
+
     this.economyText = this.add
       .text(14, 14, "", {
         fontFamily: "monospace",
@@ -127,7 +139,7 @@ export class WorldScene extends Phaser.Scene {
       .setDepth(100_001);
 
     this.metricsText = this.add
-      .text(14, 96, "", {
+      .text(14, 124, "", {
         fontFamily: "monospace",
         fontSize: "12px",
         color: "#d7e1e7",
@@ -306,6 +318,16 @@ export class WorldScene extends Phaser.Scene {
         left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
         right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
       };
+
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.H)
+        .on("down", () => this.setPlacementMode("house"));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.B)
+        .on("down", () => this.setPlacementMode("barracks"));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
+        .on("down", () => this.setPlacementMode(undefined));
     }
 
     this.input.on(
@@ -314,6 +336,11 @@ export class WorldScene extends Phaser.Scene {
         pointer: Phaser.Input.Pointer,
         currentlyOver: Phaser.GameObjects.GameObject[]
       ) => {
+        if (pointer.leftButtonDown() && this.placementKind) {
+          this.issueBuildCommand(pointer);
+          return;
+        }
+
         if (pointer.rightButtonDown()) {
           const resourceId = this.findResourceUnderPointer(currentlyOver);
 
@@ -339,6 +366,10 @@ export class WorldScene extends Phaser.Scene {
     );
 
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+      if (this.placementKind) {
+        this.drawPlacementPreview(pointer);
+      }
+
       if (!this.dragSelection || !pointer.leftButtonDown()) {
         return;
       }
@@ -395,6 +426,97 @@ export class WorldScene extends Phaser.Scene {
       unitIds: [...this.selectedUnitIds],
       resourceId
     });
+  }
+
+  private issueBuildCommand(pointer: Phaser.Input.Pointer): void {
+    const buildingKind = this.placementKind;
+
+    if (!buildingKind || this.selectedUnitIds.size === 0) {
+      return;
+    }
+
+    const target = screenToGrid(
+      { x: pointer.worldX, y: pointer.worldY },
+      this.projection
+    );
+
+    this.simulation.queueCommand({
+      type: "build",
+      playerId: "player-1",
+      unitIds: [...this.selectedUnitIds],
+      buildingKind,
+      position: {
+        x: Phaser.Math.Clamp(Math.floor(target.x), 0, MAP_SIZE - 1),
+        y: Phaser.Math.Clamp(Math.floor(target.y), 0, MAP_SIZE - 1)
+      }
+    });
+
+    this.setPlacementMode(undefined);
+  }
+
+  private setPlacementMode(kind: BuildingKind | undefined): void {
+    this.placementKind = kind;
+    this.placementGraphics?.clear();
+    this.dragSelection = undefined;
+    this.selectionGraphics?.clear();
+  }
+
+  private drawPlacementPreview(pointer: Phaser.Input.Pointer): void {
+    const buildingKind = this.placementKind;
+    const graphics = this.placementGraphics;
+
+    if (!buildingKind || !graphics) {
+      return;
+    }
+
+    const definition = BUILDING_DEFINITIONS.find(
+      (entry) => entry.kind === buildingKind
+    );
+
+    if (!definition) {
+      return;
+    }
+
+    const target = screenToGrid(
+      { x: pointer.worldX, y: pointer.worldY },
+      this.projection
+    );
+    const origin = {
+      x: Phaser.Math.Clamp(Math.floor(target.x), 0, MAP_SIZE - 1),
+      y: Phaser.Math.Clamp(Math.floor(target.y), 0, MAP_SIZE - 1)
+    };
+
+    graphics.clear();
+
+    for (let y = 0; y < definition.footprint.height; y += 1) {
+      for (let x = 0; x < definition.footprint.width; x += 1) {
+        const cellX = origin.x + x;
+        const cellY = origin.y + y;
+
+        if (cellX >= MAP_SIZE || cellY >= MAP_SIZE) {
+          continue;
+        }
+
+        const top = gridToScreen({ x: cellX, y: cellY }, this.projection);
+        const right = gridToScreen({ x: cellX + 1, y: cellY }, this.projection);
+        const bottom = gridToScreen(
+          { x: cellX + 1, y: cellY + 1 },
+          this.projection
+        );
+        const left = gridToScreen({ x: cellX, y: cellY + 1 }, this.projection);
+
+        graphics.fillStyle(0xe2c56f, 0.18);
+        graphics.lineStyle(2, 0xf7e7a9, 0.9);
+        graphics.beginPath();
+        graphics.moveTo(top.x, top.y);
+        graphics.lineTo(right.x, right.y);
+        graphics.lineTo(bottom.x, bottom.y);
+        graphics.lineTo(left.x, left.y);
+        graphics.closePath();
+        graphics.fillPath();
+        graphics.strokePath();
+      }
+    }
   }
 
   private issueMoveCommand(pointer: Phaser.Input.Pointer): void {
@@ -525,7 +647,8 @@ export class WorldScene extends Phaser.Scene {
         stockpile?.resources.food ?? 0
       )}   GOLD ${Math.floor(stockpile?.resources.gold ?? 0)}`,
       `selected ${selectedUnits.length} · carrying ${carrying.toFixed(1)}`,
-      "Right-click a resource to gather"
+      `build: H House 25W · B Barracks 75W${this.placementKind ? ` · placing ${this.placementKind}` : ""}`,
+      "Right-click resource: gather · Esc: cancel build"
     ]);
   }
 
@@ -565,7 +688,9 @@ export class WorldScene extends Phaser.Scene {
           ? 0x8fd18b
           : unit.activity === "returning"
             ? 0x8ec5e8
-            : 0xf7e7a9;
+            : unit.activity === "building"
+              ? 0xe4ad72
+              : 0xf7e7a9;
 
       view.setStrokeStyle(selected ? 3 : 2, selected ? activityColor : 0x101922, 1);
     }
@@ -580,6 +705,74 @@ export class WorldScene extends Phaser.Scene {
         label.setText(resourceLabel(resource));
         label.setAlpha(resource.amount > 0 ? 1 : 0.45);
       }
+    }
+
+    for (const building of snapshot.buildings) {
+      this.renderBuilding(building);
+    }
+  }
+
+  private renderBuilding(building: BuildingState): void {
+    const definition = BUILDING_DEFINITIONS.find(
+      (entry) => entry.kind === building.kind
+    );
+
+    if (!definition) {
+      return;
+    }
+
+    const center = {
+      x: building.position.x + definition.footprint.width / 2,
+      y: building.position.y + definition.footprint.height / 2
+    };
+    const point = gridToScreen(center, this.projection);
+
+    let view = this.buildingViews.get(building.id);
+    let label = this.buildingLabels.get(building.id);
+
+    if (!view) {
+      view = this.add
+        .rectangle(
+          point.x,
+          point.y - 8,
+          28 + definition.footprint.width * 10,
+          18 + definition.footprint.height * 7,
+          building.kind === "house" ? 0x9a744c : 0x7d5148,
+          1
+        )
+        .setStrokeStyle(2, 0xe4d2ad, 0.9);
+
+      label = this.add
+        .text(point.x, point.y + 12, "", {
+          fontFamily: "monospace",
+          fontSize: "10px",
+          color: "#f6f1df",
+          backgroundColor: "#091017bb",
+          padding: { x: 3, y: 1 }
+        })
+        .setOrigin(0.5, 0);
+
+      this.buildingViews.set(building.id, view);
+      this.buildingLabels.set(building.id, label);
+    }
+
+    view.setPosition(point.x, point.y - 8);
+    view.setDepth(point.y);
+    view.setAlpha(0.35 + building.progress * 0.65);
+    view.setStrokeStyle(
+      building.completed ? 3 : 2,
+      building.completed ? 0xc9ddb5 : 0xe4d2ad,
+      0.9
+    );
+
+    if (label) {
+      label.setPosition(point.x, point.y + 12);
+      label.setDepth(point.y + 1);
+      label.setText(
+        `${definition.displayName.toUpperCase()} ${Math.round(
+          building.progress * 100
+        )}%`
+      );
     }
   }
 
