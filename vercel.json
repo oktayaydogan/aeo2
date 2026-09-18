@@ -2,5 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "buildCommand": "pnpm --filter @aeo2/game build",
-  "outputDirectory": "apps/game/dist"
+  "outputDirectory": "apps/game/dist",
+  "installCommand": "pnpm install --recursive --no-frozen-lockfile"
 }
