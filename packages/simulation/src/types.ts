@@ -3,6 +3,17 @@ export interface Vector2 {
   y: number;
 }
 
+export interface GridCell {
+  x: number;
+  y: number;
+}
+
+export interface GridMapDefinition {
+  width: number;
+  height: number;
+  blocked?: readonly GridCell[];
+}
+
 export interface UnitState {
   id: string;
   ownerId: string;
@@ -28,4 +39,5 @@ export type GameCommand = MoveCommand;
 export interface SimulationOptions {
   tickRate?: number;
   units?: readonly UnitState[];
+  map?: GridMapDefinition;
 }
