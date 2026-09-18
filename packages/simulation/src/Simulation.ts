@@ -9,8 +9,11 @@ import type {
 
 export const DEFAULT_TICK_RATE = 20;
 const DEFAULT_MAP_SIZE = 64;
-const FORMATION_SPACING = 0.9;
+const FORMATION_SPACING = 0.72;
 const ARRIVAL_EPSILON = 0.000001;
+const UNIT_RADIUS = 0.26;
+const MIN_UNIT_DISTANCE = UNIT_RADIUS * 2;
+const SEPARATION_ITERATIONS = 2;
 
 interface RuntimeUnit extends UnitState {
   waypoints: Vector2[];
@@ -59,6 +62,7 @@ export class Simulation {
   step(): void {
     this.applyQueuedCommands();
     this.moveUnits();
+    this.resolveUnitSeparation();
     this.tick += 1;
   }
 
@@ -155,6 +159,109 @@ export class Simulation {
         unit.destination = null;
       }
     }
+  }
+
+  private resolveUnitSeparation(): void {
+    const units = [...this.units.values()];
+
+    for (let iteration = 0; iteration < SEPARATION_ITERATIONS; iteration += 1) {
+      const buckets = buildSpatialBuckets(units);
+
+      for (let index = 0; index < units.length; index += 1) {
+        const unit = units[index];
+
+        if (!unit) {
+          continue;
+        }
+
+        const cellX = Math.floor(unit.position.x);
+        const cellY = Math.floor(unit.position.y);
+
+        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+          for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+            const bucket = buckets.get(`${cellX + offsetX},${cellY + offsetY}`);
+
+            if (!bucket) {
+              continue;
+            }
+
+            for (const otherIndex of bucket) {
+              if (otherIndex <= index) {
+                continue;
+              }
+
+              const other = units[otherIndex];
+
+              if (!other) {
+                continue;
+              }
+
+              separatePair(unit, other, this.navigation);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function buildSpatialBuckets(units: readonly RuntimeUnit[]): Map<string, number[]> {
+  const buckets = new Map<string, number[]>();
+
+  units.forEach((unit, index) => {
+    const key = `${Math.floor(unit.position.x)},${Math.floor(unit.position.y)}`;
+    const bucket = buckets.get(key);
+
+    if (bucket) {
+      bucket.push(index);
+    } else {
+      buckets.set(key, [index]);
+    }
+  });
+
+  return buckets;
+}
+
+function separatePair(
+  a: RuntimeUnit,
+  b: RuntimeUnit,
+  navigation: GridNavigation
+): void {
+  let dx = b.position.x - a.position.x;
+  let dy = b.position.y - a.position.y;
+  let pairDistance = Math.hypot(dx, dy);
+
+  if (pairDistance >= MIN_UNIT_DISTANCE) {
+    return;
+  }
+
+  if (pairDistance <= ARRIVAL_EPSILON) {
+    const direction = a.id < b.id ? -1 : 1;
+    dx = direction;
+    dy = 0;
+    pairDistance = 1;
+  }
+
+  const overlap = MIN_UNIT_DISTANCE - pairDistance;
+  const push = overlap * 0.5;
+  const normalX = dx / pairDistance;
+  const normalY = dy / pairDistance;
+
+  const nextA = {
+    x: a.position.x - normalX * push,
+    y: a.position.y - normalY * push
+  };
+  const nextB = {
+    x: b.position.x + normalX * push,
+    y: b.position.y + normalY * push
+  };
+
+  if (navigation.isWalkablePoint(nextA)) {
+    a.position = nextA;
+  }
+
+  if (navigation.isWalkablePoint(nextB)) {
+    b.position = nextB;
   }
 }
 
