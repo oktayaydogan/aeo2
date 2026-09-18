@@ -64,3 +64,31 @@ packages/
 - New mechanics require simulation-level tests
 - Performance-sensitive systems get explicit budgets/benchmarks
 - No authentication/database work until the core RTS loop is proven
+
+
+## Phase 1 economy vertical slice
+
+Implemented:
+
+- [x] Wood, food, and gold resource node contracts
+- [x] Villager gather command
+- [x] Walk to resource
+- [x] Gather with carry capacity
+- [x] Return to Town Center
+- [x] Deposit into player stockpile
+- [x] Repeat until the resource is depleted
+- [x] Manual move cancels active gather work
+- [x] Ownership checks reject enemy commands
+- [x] Simulation tests gate Vercel deployment
+- [x] Economy HUD and resource amounts
+- [x] 100-entity benchmark preserved at `?benchmark=1`
+
+Verification:
+
+```bash
+npm run typecheck --workspace=@aeo2/simulation
+npm run test --workspace=@aeo2/simulation
+npm run build --workspace=@aeo2/game
+```
+
+Vercel runs these checks before publishing the game.
