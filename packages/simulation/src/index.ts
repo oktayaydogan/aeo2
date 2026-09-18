@@ -1,6 +1,10 @@
 export { GridNavigation } from "./GridNavigation";
 export { DEFAULT_TICK_RATE, Simulation } from "./Simulation";
 export type {
+  BuildCommand,
+  BuildingDefinition,
+  BuildingKind,
+  BuildingState,
   CargoState,
   DropOffPointState,
   GameCommand,
