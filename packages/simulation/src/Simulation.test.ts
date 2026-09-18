@@ -133,3 +133,102 @@ describe("Simulation economy loop", () => {
     expect(stockpile?.resources.wood).toBe(0);
   });
 });
+
+
+describe("Simulation building construction", () => {
+  const houseDefinition = {
+    kind: "house" as const,
+    displayName: "House",
+    footprint: { width: 2, height: 2 },
+    cost: { wood: 25, food: 0, gold: 0 },
+    buildTimeSeconds: 8,
+    maxHitPoints: 550,
+    populationProvided: 5
+  };
+
+  function createBuildingSimulation(wood: number): Simulation {
+    return new Simulation({
+      tickRate: 20,
+      map: {
+        width: 20,
+        height: 20
+      },
+      units: [villager()],
+      buildingDefinitions: [houseDefinition],
+      stockpiles: {
+        "player-1": {
+          wood,
+          food: 0,
+          gold: 0
+        }
+      }
+    });
+  }
+
+  it("deducts resources and completes a villager-built house", () => {
+    const simulation = createBuildingSimulation(100);
+
+    simulation.queueCommand({
+      type: "build",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      buildingKind: "house",
+      position: { x: 4, y: 4 }
+    });
+
+    const snapshot = runSteps(simulation, 500);
+    const building = snapshot.buildings[0];
+    const stockpile = snapshot.stockpiles.find(
+      (entry) => entry.playerId === "player-1"
+    );
+    const unit = snapshot.units.find((entry) => entry.id === "villager-1");
+
+    expect(building?.kind).toBe("house");
+    expect(building?.completed).toBe(true);
+    expect(building?.progress).toBe(1);
+    expect(building?.hitPoints).toBe(550);
+    expect(stockpile?.resources.wood).toBe(75);
+    expect(unit?.activity).toBe("idle");
+  });
+
+  it("rejects construction when the player cannot afford it", () => {
+    const simulation = createBuildingSimulation(0);
+
+    simulation.queueCommand({
+      type: "build",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      buildingKind: "house",
+      position: { x: 4, y: 4 }
+    });
+
+    const snapshot = runSteps(simulation, 20);
+
+    expect(snapshot.buildings).toHaveLength(0);
+  });
+
+  it("rejects overlapping building placement", () => {
+    const simulation = createBuildingSimulation(100);
+
+    simulation.queueCommand({
+      type: "build",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      buildingKind: "house",
+      position: { x: 4, y: 4 }
+    });
+    simulation.step();
+
+    simulation.queueCommand({
+      type: "build",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      buildingKind: "house",
+      position: { x: 5, y: 5 }
+    });
+
+    const snapshot = runSteps(simulation, 20);
+
+    expect(snapshot.buildings).toHaveLength(1);
+  });
+});
