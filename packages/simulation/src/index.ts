@@ -1,6 +1,7 @@
 export { GridNavigation } from "./GridNavigation";
 export { DEFAULT_TICK_RATE, Simulation } from "./Simulation";
 export type {
+  AttackCommand,
   BuildCommand,
   BuildingDefinition,
   BuildingKind,
@@ -18,7 +19,10 @@ export type {
   ResourceStockpile,
   SimulationOptions,
   SimulationSnapshot,
+  TrainCommand,
+  TrainingQueueItemState,
   UnitActivity,
+  UnitDefinition,
   UnitKind,
   UnitState,
   Vector2
