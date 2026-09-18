@@ -649,7 +649,7 @@ export class Simulation {
     for (const ai of this.aiPlayers) {
       const interval = Math.max(1, ai.thinkIntervalTicks ?? this.tickRate);
 
-      if (this.tick % interval !== 0) {
+      if (this.tick === 0 || this.tick % interval !== 0) {
         continue;
       }
 
