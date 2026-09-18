@@ -7,6 +7,7 @@ import {
   type BuildingState,
   type ResourceNodeState,
   type SimulationSnapshot,
+  type UnitKind,
   type UnitState
 } from "@aeo2/simulation";
 import {
@@ -60,13 +61,34 @@ export class WorldScene extends Phaser.Scene {
     resources: RESOURCE_NODES,
     buildingDefinitions: BUILDING_DEFINITIONS,
     unitDefinitions: UNIT_DEFINITIONS,
-    dropOffPoints: [
+    buildings: [
       {
         id: "town-center-1",
         ownerId: "player-1",
-        position: TOWN_CENTER_POSITION
+        kind: "town-center",
+        position: { x: 2, y: 8 },
+        progress: 1,
+        completed: true,
+        hitPoints: 2400,
+        trainingQueue: []
       }
     ],
+    dropOffPoints: [
+      {
+        id: "town-center-dropoff",
+        ownerId: "player-1",
+        position: { x: 1.5, y: 10 }
+      }
+    ],
+    aiPlayers: BENCHMARK_MODE
+      ? []
+      : [
+          {
+            playerId: "player-2",
+            enemyPlayerId: "player-1",
+            thinkIntervalTicks: 400
+          }
+        ],
     stockpiles: {
       "player-1": {
         wood: 100,
@@ -117,7 +139,6 @@ export class WorldScene extends Phaser.Scene {
 
   create(): void {
     this.drawMap();
-    this.drawTownCenter();
     const initialSnapshot = this.simulation.getSnapshot();
     this.createResourceViews(initialSnapshot);
     this.createUnitViews(initialSnapshot);
@@ -219,42 +240,6 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private drawTownCenter(): void {
-    const point = gridToScreen(TOWN_CENTER_POSITION, this.projection);
-    const building = this.add
-      .rectangle(point.x, point.y - 10, 48, 34, 0x8b6b45, 1)
-      .setStrokeStyle(3, 0xd8c59b, 0.9)
-      .setDepth(point.y);
-
-    this.add
-      .triangle(
-        point.x,
-        point.y - 36,
-        0,
-        24,
-        24,
-        0,
-        48,
-        24,
-        0x6b4030,
-        1
-      )
-      .setDepth(point.y + 1);
-
-    this.add
-      .text(point.x, point.y + 13, "Town Center", {
-        fontFamily: "monospace",
-        fontSize: "11px",
-        color: "#f3ead0",
-        backgroundColor: "#091017aa",
-        padding: { x: 4, y: 2 }
-      })
-      .setOrigin(0.5, 0)
-      .setDepth(point.y + 2);
-
-    building.disableInteractive();
-  }
-
   private createResourceViews(snapshot: SimulationSnapshot): void {
     for (const resource of snapshot.resources) {
       const point = gridToScreen(resource.position, this.projection);
@@ -345,7 +330,10 @@ export class WorldScene extends Phaser.Scene {
         .on("down", () => this.setPlacementMode(undefined));
       this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.M)
-        .on("down", () => this.issueTrainCommand());
+        .on("down", () => this.issueTrainCommand("militia"));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.V)
+        .on("down", () => this.issueTrainCommand("villager"));
     }
 
     this.input.on(
@@ -472,7 +460,7 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
-  private issueTrainCommand(): void {
+  private issueTrainCommand(unitKind: UnitKind): void {
     const buildingId = this.selectedBuildingId;
 
     if (!buildingId) {
@@ -483,7 +471,7 @@ export class WorldScene extends Phaser.Scene {
       type: "train",
       playerId: "player-1",
       buildingId,
-      unitKind: "militia"
+      unitKind
     });
   }
 
@@ -713,14 +701,26 @@ export class WorldScene extends Phaser.Scene {
       (total, unit) => total + (unit.cargo?.amount ?? 0),
       0
     );
+    const population = snapshot.population.find(
+      (entry) => entry.playerId === "player-1"
+    );
+    const selectedBuilding = snapshot.buildings.find(
+      (building) => building.id === this.selectedBuildingId
+    );
+    const trainingHint =
+      selectedBuilding?.kind === "town-center"
+        ? "V Villager 50F"
+        : selectedBuilding?.kind === "barracks"
+          ? "M Militia 60F 20G"
+          : "No units train here";
 
     this.economyText.setText([
       `WOOD ${Math.floor(stockpile?.resources.wood ?? 0)}   FOOD ${Math.floor(
         stockpile?.resources.food ?? 0
-      )}   GOLD ${Math.floor(stockpile?.resources.gold ?? 0)}`,
+      )}   GOLD ${Math.floor(stockpile?.resources.gold ?? 0)}   POP ${population?.used ?? 0}/${population?.cap ?? 0}${population?.queued ? ` (+${population.queued})` : ""}`,
       `selected units ${selectedUnits.length} · carrying ${carrying.toFixed(1)}`,
       this.selectedBuildingId
-        ? `selected building ${this.selectedBuildingId} · M Militia 60F 20G`
+        ? `selected building ${this.selectedBuildingId} · ${trainingHint}`
         : `build: H House 25W · B Barracks 75W${this.placementKind ? ` · placing ${this.placementKind}` : ""}`,
       "Right-click resource: gather · enemy: attack · Esc: cancel build"
     ]);
@@ -822,7 +822,11 @@ export class WorldScene extends Phaser.Scene {
           point.y - 8,
           28 + definition.footprint.width * 10,
           18 + definition.footprint.height * 7,
-          building.kind === "house" ? 0x9a744c : 0x7d5148,
+          building.kind === "town-center"
+            ? 0x8b6b45
+            : building.kind === "house"
+              ? 0x9a744c
+              : 0x7d5148,
           1
         )
         .setStrokeStyle(2, 0xe4d2ad, 0.9);
