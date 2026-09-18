@@ -17,9 +17,9 @@ export function App() {
       <header className="topbar">
         <div>
           <strong>AEO2</strong>
-          <span className="milestone">Phase 0 · RTS engine prototype</span>
+          <span className="milestone">Phase 1 · Economy vertical slice</span>
         </div>
-        <div className="controls">WASD pan · wheel zoom · click/drag select · right-click move</div>
+        <div className="controls">WASD pan · wheel zoom · click/drag select · right-click move/resource gather</div>
       </header>
 
       <section className="game-frame">
@@ -27,7 +27,7 @@ export function App() {
       </section>
 
       <footer className="statusbar">
-        <span>Simulation: fixed 20 Hz · 100 entity benchmark</span>
+        <span>Simulation: fixed 20 Hz · economy loop · ?benchmark=1 for 100 entities</span>
         <span>Rendering: Phaser 4</span>
         <span>Client shell: React</span>
       </footer>
