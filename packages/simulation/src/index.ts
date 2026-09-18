@@ -1,6 +1,7 @@
 export { GridNavigation } from "./GridNavigation";
 export { DEFAULT_TICK_RATE, Simulation } from "./Simulation";
 export type {
+  AiPlayerDefinition,
   AttackCommand,
   BuildCommand,
   BuildingDefinition,
@@ -13,6 +14,7 @@ export type {
   GridCell,
   GridMapDefinition,
   MoveCommand,
+  PlayerPopulationState,
   PlayerStockpileState,
   ResourceKind,
   ResourceNodeState,
