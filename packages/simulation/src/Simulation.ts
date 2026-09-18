@@ -203,7 +203,7 @@ export class Simulation {
         unit.cargo.amount > ARRIVAL_EPSILON &&
         unit.cargo.kind !== resource.kind
       ) {
-        this.beginReturnToDropOff(unit, resource.kind);
+        this.beginReturnToDropOff(unit, unit.cargo.kind);
         continue;
       }
 
