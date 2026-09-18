@@ -16,7 +16,14 @@ export interface GridMapDefinition {
 
 export type ResourceKind = "wood" | "food" | "gold";
 export type UnitKind = "villager" | "military";
-export type UnitActivity = "idle" | "moving" | "gathering" | "returning";
+export type UnitActivity =
+  | "idle"
+  | "moving"
+  | "gathering"
+  | "returning"
+  | "building";
+
+export type BuildingKind = "house" | "barracks";
 
 export interface CargoState {
   kind: ResourceKind;
@@ -59,11 +66,35 @@ export interface PlayerStockpileState {
   resources: ResourceStockpile;
 }
 
+export interface BuildingDefinition {
+  kind: BuildingKind;
+  displayName: string;
+  footprint: {
+    width: number;
+    height: number;
+  };
+  cost: ResourceStockpile;
+  buildTimeSeconds: number;
+  maxHitPoints: number;
+  populationProvided: number;
+}
+
+export interface BuildingState {
+  id: string;
+  ownerId: string;
+  kind: BuildingKind;
+  position: Vector2;
+  progress: number;
+  completed: boolean;
+  hitPoints: number;
+}
+
 export interface SimulationSnapshot {
   tick: number;
   units: readonly UnitState[];
   resources: readonly ResourceNodeState[];
   stockpiles: readonly PlayerStockpileState[];
+  buildings: readonly BuildingState[];
 }
 
 export interface MoveCommand {
@@ -80,7 +111,15 @@ export interface GatherCommand {
   resourceId: string;
 }
 
-export type GameCommand = MoveCommand | GatherCommand;
+export interface BuildCommand {
+  type: "build";
+  playerId: string;
+  unitIds: readonly string[];
+  buildingKind: BuildingKind;
+  position: Vector2;
+}
+
+export type GameCommand = MoveCommand | GatherCommand | BuildCommand;
 
 export interface SimulationOptions {
   tickRate?: number;
@@ -88,6 +127,8 @@ export interface SimulationOptions {
   map?: GridMapDefinition;
   resources?: readonly ResourceNodeState[];
   dropOffPoints?: readonly DropOffPointState[];
+  buildingDefinitions?: readonly BuildingDefinition[];
+  buildings?: readonly BuildingState[];
   stockpiles?: Readonly<
     Record<string, Partial<ResourceStockpile>>
   >;
