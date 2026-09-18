@@ -24,6 +24,7 @@ export class GridNavigation {
   readonly height: number;
 
   private readonly blocked = new Set<string>();
+  private readonly dynamicBlocked = new Set<string>();
 
   constructor(definition: GridMapDefinition) {
     if (!Number.isInteger(definition.width) || definition.width <= 0) {
@@ -51,7 +52,8 @@ export class GridNavigation {
       Number.isInteger(x) &&
       Number.isInteger(y) &&
       this.isInside(x, y) &&
-      !this.blocked.has(cellKey(x, y))
+      !this.blocked.has(cellKey(x, y)) &&
+      !this.dynamicBlocked.has(cellKey(x, y))
     );
   }
 
@@ -67,6 +69,16 @@ export class GridNavigation {
 
     const cell = worldToCell(point);
     return this.isWalkableCell(cell.x, cell.y);
+  }
+
+  blockCells(cells: readonly GridCell[]): void {
+    for (const cell of cells) {
+      if (!this.isInside(cell.x, cell.y)) {
+        throw new Error(`Dynamic blocked cell is outside the map: ${cell.x},${cell.y}`);
+      }
+
+      this.dynamicBlocked.add(cellKey(cell.x, cell.y));
+    }
   }
 
   resolveTarget(target: Vector2): Vector2 | null {
