@@ -19,7 +19,7 @@ export function App() {
           <strong>AEO2</strong>
           <span className="milestone">Phase 0 · RTS engine prototype</span>
         </div>
-        <div className="controls">WASD pan · wheel zoom · click unit · right-click move</div>
+        <div className="controls">WASD pan · wheel zoom · click/drag select · right-click move</div>
       </header>
 
       <section className="game-frame">
