@@ -115,7 +115,7 @@ export interface BuildingState {
   completed: boolean;
   hitPoints: number;
   trainingQueue: TrainingQueueItemState[];
-  rallyPoint: Vector2 | null;
+  rallyPoint?: Vector2 | null;
 }
 
 export type AiMode = "waiting" | "attacking" | "idle";
