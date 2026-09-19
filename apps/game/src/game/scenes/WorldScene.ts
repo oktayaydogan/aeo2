@@ -18,6 +18,7 @@ import {
 } from "../isometric";
 import { BLOCKED_CELL_KEYS, PROTOTYPE_MAP } from "../prototypeMap";
 import { getHudCommandAvailability } from "../hudState";
+import { createPrototypeTextures } from "../prototypeTextures";
 import { FogOfWar } from "../visibility";
 
 const MAP_SIZE = 20;
@@ -135,15 +136,15 @@ export class WorldScene extends Phaser.Scene {
     originY: 110
   };
 
-  private readonly unitViews = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly unitViews = new Map<string, Phaser.GameObjects.Image>();
   private readonly unitHealthBars = new Map<string, Phaser.GameObjects.Rectangle>();
   private readonly lastUnitHitPoints = new Map<string, number>();
   private readonly unitIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly selectedUnitIds = new Set<string>();
-  private readonly resourceViews = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly resourceViews = new Map<string, Phaser.GameObjects.Image>();
   private readonly resourceLabels = new Map<string, Phaser.GameObjects.Text>();
   private readonly resourceIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
-  private readonly buildingViews = new Map<string, Phaser.GameObjects.Rectangle>();
+  private readonly buildingViews = new Map<string, Phaser.GameObjects.Image>();
   private readonly buildingHealthBars = new Map<string, Phaser.GameObjects.Rectangle>();
   private readonly lastBuildingHitPoints = new Map<string, number>();
   private readonly buildingLabels = new Map<string, Phaser.GameObjects.Text>();
@@ -183,6 +184,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   create(): void {
+    createPrototypeTextures(this);
     this.drawMap();
     const initialSnapshot = this.simulation.getSnapshot();
     this.createResourceViews(initialSnapshot);
@@ -366,20 +368,18 @@ export class WorldScene extends Phaser.Scene {
     for (const resource of snapshot.resources) {
       const point = gridToScreen(resource.position, this.projection);
       const view = this.add
-        .circle(
+        .image(
           point.x,
-          point.y,
-          resource.kind === "wood" ? 13 : 10,
-          resourceColor(resource.kind),
-          1
+          point.y - 8,
+          resourceTextureKey(resource.kind)
         )
-        .setStrokeStyle(2, 0x101922, 0.85)
+        .setOrigin(0.5, 0.8)
         .setDepth(point.y)
         .setInteractive({ useHandCursor: true });
 
       const label = this.add
-        .text(point.x, point.y + 13, resourceLabel(resource), {
-          fontFamily: "monospace",
+        .text(point.x, point.y + 10, resourceLabel(resource), {
+          fontFamily: "Inter, Arial, sans-serif",
           fontSize: "10px",
           color: "#f6f1df",
           backgroundColor: "#091017bb",
@@ -400,7 +400,7 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private ensureUnitView(unit: UnitState): Phaser.GameObjects.Arc {
+  private ensureUnitView(unit: UnitState): Phaser.GameObjects.Image {
     const existing = this.unitViews.get(unit.id);
 
     if (existing) {
@@ -408,34 +408,33 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const point = gridToScreen(unit.position, this.projection);
-    const circle = this.add
-      .circle(
+    const image = this.add
+      .image(
         point.x,
-        point.y,
-        unit.kind === "militia" ? UNIT_RADIUS + 1 : UNIT_RADIUS,
-        unitColor(unit),
-        1
+        point.y - 7,
+        unit.kind === "militia" ? "unit-militia" : "unit-villager"
       )
-      .setStrokeStyle(2, 0x101922, 0.8)
+      .setOrigin(0.5, 0.82)
       .setDepth(point.y)
+      .setTint(unitTint(unit))
       .setInteractive({ useHandCursor: true });
 
-    circle.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+    image.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown() && unit.ownerId === "player-1") {
         this.selectOnly(unit.id);
       }
     });
 
     const healthBar = this.add
-      .rectangle(point.x, point.y - 12, 18, 3, 0x7ecf7a, 1)
+      .rectangle(point.x, point.y - 23, 18, 3, 0x7ecf7a, 1)
       .setOrigin(0.5, 0.5)
       .setDepth(point.y + 2);
 
-    this.unitViews.set(unit.id, circle);
+    this.unitViews.set(unit.id, image);
     this.unitHealthBars.set(unit.id, healthBar);
     this.lastUnitHitPoints.set(unit.id, unit.hitPoints);
-    this.unitIdByObject.set(circle, unit.id);
-    return circle;
+    this.unitIdByObject.set(image, unit.id);
+    return image;
   }
 
   private createHudButtons(): void {
@@ -1507,7 +1506,7 @@ export class WorldScene extends Phaser.Scene {
       }
 
       const point = gridToScreen(unit.position, this.projection);
-      view.setPosition(point.x, point.y);
+      view.setPosition(point.x, point.y - 7);
       view.setDepth(point.y);
 
       const definition = UNIT_DEFINITIONS.find(
@@ -1515,7 +1514,7 @@ export class WorldScene extends Phaser.Scene {
       );
       const maxHitPoints = definition?.maxHitPoints ?? unit.hitPoints;
       const hpRatio = Phaser.Math.Clamp(unit.hitPoints / maxHitPoints, 0, 1);
-      healthBar?.setPosition(point.x, point.y - 12);
+      healthBar?.setPosition(point.x, point.y - 23);
       healthBar?.setDisplaySize(Math.max(1, 18 * hpRatio), 3);
       healthBar?.setFillStyle(
         hpRatio > 0.6 ? 0x7ecf7a : hpRatio > 0.3 ? 0xe0bd62 : 0xd4655d,
@@ -1528,14 +1527,14 @@ export class WorldScene extends Phaser.Scene {
         previousHitPoints !== undefined &&
         unit.hitPoints < previousHitPoints
       ) {
-        view.setFillStyle(0xffffff, 1);
+        view.setTint(0xffffff);
         this.time.delayedCall(90, () => {
           if (view.active) {
-            view.setFillStyle(unitColor(unit), 1);
+            view.setTint(unitTint(unit));
           }
         });
       } else {
-        view.setFillStyle(unitColor(unit), 1);
+        view.setTint(unitTint(unit));
       }
       this.lastUnitHitPoints.set(unit.id, unit.hitPoints);
 
@@ -1551,7 +1550,11 @@ export class WorldScene extends Phaser.Scene {
                 ? 0xe98673
                 : 0xf7e7a9;
 
-      view.setStrokeStyle(selected ? 3 : 2, selected ? activityColor : 0x101922, 1);
+      view.setScale(selected ? 1.12 : 1);
+      if (selected && this.selectionGraphics) {
+        this.selectionGraphics.lineStyle(2, activityColor, 0.95);
+        this.selectionGraphics.strokeCircle(point.x, point.y + 1, 11);
+      }
     }
 
     for (const resource of snapshot.resources) {
@@ -1635,17 +1638,24 @@ export class WorldScene extends Phaser.Scene {
 
     if (!view) {
       view = this.add
-        .rectangle(
+        .image(
           point.x,
-          point.y - 8,
-          28 + definition.footprint.width * 10,
-          18 + definition.footprint.height * 7,
-          buildingColor(building),
-          1
+          point.y - 10,
+          `building-${building.kind}`
         )
-        .setStrokeStyle(2, 0xe4d2ad, 0.9);
+        .setOrigin(0.5, 0.8)
+        .setTint(buildingTint(building))
+        .setDepth(point.y)
+        .setInteractive({ useHandCursor: true });
 
-      view.setInteractive({ useHandCursor: true });
+      const displayScale =
+        building.kind === "town-center"
+          ? 1
+          : building.kind === "barracks"
+            ? 0.86
+            : 0.78;
+      view.setScale(displayScale);
+
       view.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
         if (pointer.leftButtonDown() && building.ownerId === "player-1") {
           this.selectedBuildingId = building.id;
@@ -1656,14 +1666,14 @@ export class WorldScene extends Phaser.Scene {
       this.buildingIdByObject.set(view, building.id);
 
       const healthBar = this.add
-        .rectangle(point.x, point.y - 30, 42, 4, 0x7ecf7a, 1)
+        .rectangle(point.x, point.y - 48, 48, 4, 0x7ecf7a, 1)
         .setOrigin(0.5, 0.5)
         .setDepth(point.y + 2);
       this.buildingHealthBars.set(building.id, healthBar);
 
       label = this.add
-        .text(point.x, point.y + 12, "", {
-          fontFamily: "monospace",
+        .text(point.x, point.y + 10, "", {
+          fontFamily: "Inter, Arial, sans-serif",
           fontSize: "10px",
           color: "#f6f1df",
           backgroundColor: "#091017bb",
@@ -1679,14 +1689,16 @@ export class WorldScene extends Phaser.Scene {
     view.setVisible(true);
     label?.setVisible(true);
     this.buildingHealthBars.get(building.id)?.setVisible(true);
-    view.setPosition(point.x, point.y - 8);
+    view.setPosition(point.x, point.y - 10);
     view.setDepth(point.y);
     view.setAlpha(0.35 + building.progress * 0.65);
+    view.setTint(buildingTint(building));
+
     const maxHitPoints = definition.maxHitPoints;
     const hpRatio = Phaser.Math.Clamp(building.hitPoints / maxHitPoints, 0, 1);
     const healthBar = this.buildingHealthBars.get(building.id);
-    healthBar?.setPosition(point.x, point.y - 30);
-    healthBar?.setDisplaySize(Math.max(1, 42 * hpRatio), 4);
+    healthBar?.setPosition(point.x, point.y - 48);
+    healthBar?.setDisplaySize(Math.max(1, 48 * hpRatio), 4);
     healthBar?.setFillStyle(
       hpRatio > 0.6 ? 0x7ecf7a : hpRatio > 0.3 ? 0xe0bd62 : 0xd4655d,
       1
@@ -1698,31 +1710,26 @@ export class WorldScene extends Phaser.Scene {
       previousHitPoints !== undefined &&
       building.hitPoints < previousHitPoints
     ) {
-      view.setFillStyle(0xffffff, 1);
+      view.setTint(0xffffff);
       this.time.delayedCall(100, () => {
         if (view.active) {
-          view.setFillStyle(buildingColor(building), 1);
+          view.setTint(buildingTint(building));
         }
       });
-    } else {
-      view.setFillStyle(buildingColor(building), 1);
     }
     this.lastBuildingHitPoints.set(building.id, building.hitPoints);
 
     const selected = this.selectedBuildingId === building.id;
-
-    view.setStrokeStyle(
-      selected ? 4 : building.completed ? 3 : 2,
-      selected
-        ? 0xf7e7a9
-        : building.completed
-          ? 0xc9ddb5
-          : 0xe4d2ad,
-      0.9
+    view.setScale(
+      (building.kind === "town-center"
+        ? 1
+        : building.kind === "barracks"
+          ? 0.86
+          : 0.78) * (selected ? 1.06 : 1)
     );
 
     if (label) {
-      label.setPosition(point.x, point.y + 12);
+      label.setPosition(point.x, point.y + 10);
       label.setDepth(point.y + 1);
       const queue = building.trainingQueue[0];
       const queueLabel = queue
@@ -1730,13 +1737,13 @@ export class WorldScene extends Phaser.Scene {
         : "";
 
       const rallyLabel = building.rallyPoint
-        ? ` · RALLY ${building.rallyPoint.x.toFixed(1)},${building.rallyPoint.y.toFixed(1)}`
+        ? ` · RALLY`
         : "";
 
       label.setText(
-        `${definition.displayName.toUpperCase()} ${Math.round(
-          building.progress * 100
-        )}% · HP ${Math.ceil(building.hitPoints)}/${definition.maxHitPoints}${queueLabel}${rallyLabel}`
+        `${definition.displayName.toUpperCase()} · HP ${Math.ceil(
+          building.hitPoints
+        )}/${definition.maxHitPoints}${queueLabel}${rallyLabel}`
       );
     }
   }
@@ -1856,20 +1863,22 @@ function buildingVisionRadius(building: BuildingState): number {
   return building.kind === "barracks" ? 4.6 : 3.6;
 }
 
-function buildingColor(building: BuildingState): number {
-  if (building.ownerId !== "player-1") {
-    return building.kind === "town-center"
-      ? 0x8f4c48
-      : building.kind === "house"
-        ? 0x854d43
-        : 0x74453f;
-  }
+function resourceTextureKey(
+  kind: ResourceNodeState["kind"]
+): string {
+  return kind === "wood"
+    ? "resource-wood"
+    : kind === "food"
+      ? "resource-food"
+      : "resource-gold";
+}
 
-  return building.kind === "town-center"
-    ? 0x8b6b45
-    : building.kind === "house"
-      ? 0x9a744c
-      : 0x7d5148;
+function buildingTint(building: BuildingState): number {
+  return building.ownerId === "player-1" ? 0xffffff : 0xd77a72;
+}
+
+function unitTint(unit: UnitState): number {
+  return unit.ownerId === "player-1" ? 0xffffff : 0xd77a72;
 }
 
 function unitColor(unit: UnitState): number {
