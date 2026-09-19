@@ -106,12 +106,15 @@ export class WorldScene extends Phaser.Scene {
   };
 
   private readonly unitViews = new Map<string, Phaser.GameObjects.Arc>();
+  private readonly unitHealthBars = new Map<string, Phaser.GameObjects.Rectangle>();
+  private readonly lastUnitHitPoints = new Map<string, number>();
   private readonly unitIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly selectedUnitIds = new Set<string>();
   private readonly resourceViews = new Map<string, Phaser.GameObjects.Arc>();
   private readonly resourceLabels = new Map<string, Phaser.GameObjects.Text>();
   private readonly resourceIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly buildingViews = new Map<string, Phaser.GameObjects.Rectangle>();
+  private readonly buildingHealthBars = new Map<string, Phaser.GameObjects.Rectangle>();
   private readonly buildingLabels = new Map<string, Phaser.GameObjects.Text>();
   private readonly buildingIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
 
@@ -304,7 +307,14 @@ export class WorldScene extends Phaser.Scene {
       }
     });
 
+    const healthBar = this.add
+      .rectangle(point.x, point.y - 12, 18, 3, 0x7ecf7a, 1)
+      .setOrigin(0.5, 0.5)
+      .setDepth(point.y + 2);
+
     this.unitViews.set(unit.id, circle);
+    this.unitHealthBars.set(unit.id, healthBar);
+    this.lastUnitHitPoints.set(unit.id, unit.hitPoints);
     this.unitIdByObject.set(circle, unit.id);
     return circle;
   }
@@ -355,6 +365,8 @@ export class WorldScene extends Phaser.Scene {
             this.issueGatherCommand(resourceId);
           } else if (targetUnitId) {
             this.issueAttackCommand(targetUnitId);
+          } else if (this.selectedBuildingId) {
+            this.issueRallyPointCommand(pointer);
           } else {
             this.issueMoveCommand(pointer);
           }
@@ -579,6 +591,29 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  private issueRallyPointCommand(pointer: Phaser.Input.Pointer): void {
+    const buildingId = this.selectedBuildingId;
+
+    if (!buildingId) {
+      return;
+    }
+
+    const target = screenToGrid(
+      { x: pointer.worldX, y: pointer.worldY },
+      this.projection
+    );
+
+    this.simulation.queueCommand({
+      type: "set-rally-point",
+      playerId: "player-1",
+      buildingId,
+      target: {
+        x: Phaser.Math.Clamp(target.x, 0, MAP_SIZE - 0.01),
+        y: Phaser.Math.Clamp(target.y, 0, MAP_SIZE - 0.01)
+      }
+    });
+  }
+
   private issueMoveCommand(pointer: Phaser.Input.Pointer): void {
     if (this.selectedUnitIds.size === 0) {
       return;
@@ -707,12 +742,24 @@ export class WorldScene extends Phaser.Scene {
     const selectedBuilding = snapshot.buildings.find(
       (building) => building.id === this.selectedBuildingId
     );
+    const aiState = snapshot.aiPlayers.find(
+      (entry) => entry.playerId === "player-2"
+    );
     const trainingHint =
       selectedBuilding?.kind === "town-center"
         ? "V Villager 50F"
         : selectedBuilding?.kind === "barracks"
           ? "M Militia 60F 20G"
           : "No units train here";
+    const queueText =
+      selectedBuilding && selectedBuilding.trainingQueue.length > 0
+        ? selectedBuilding.trainingQueue
+            .map(
+              (item, index) =>
+                `${index + 1}:${item.unitKind} ${Math.round(item.progress * 100)}%`
+            )
+            .join(" · ")
+        : "queue empty";
 
     this.economyText.setText([
       `WOOD ${Math.floor(stockpile?.resources.wood ?? 0)}   FOOD ${Math.floor(
@@ -720,8 +767,9 @@ export class WorldScene extends Phaser.Scene {
       )}   GOLD ${Math.floor(stockpile?.resources.gold ?? 0)}   POP ${population?.used ?? 0}/${population?.cap ?? 0}${population?.queued ? ` (+${population.queued})` : ""}`,
       `selected units ${selectedUnits.length} · carrying ${carrying.toFixed(1)}`,
       this.selectedBuildingId
-        ? `selected building ${this.selectedBuildingId} · ${trainingHint}`
+        ? `selected building ${this.selectedBuildingId} · ${trainingHint} · ${queueText}`
         : `build: H House 25W · B Barracks 75W${this.placementKind ? ` · placing ${this.placementKind}` : ""}`,
+      `AI ${aiState?.mode ?? "off"} · building selected + right-click: rally`,
       "Right-click resource: gather · enemy: attack · Esc: cancel build"
     ]);
   }
@@ -754,6 +802,9 @@ export class WorldScene extends Phaser.Scene {
 
       this.unitIdByObject.delete(view);
       view.destroy();
+      this.unitHealthBars.get(unitId)?.destroy();
+      this.unitHealthBars.delete(unitId);
+      this.lastUnitHitPoints.delete(unitId);
       this.unitViews.delete(unitId);
       this.selectedUnitIds.delete(unitId);
     }
@@ -764,6 +815,36 @@ export class WorldScene extends Phaser.Scene {
       const point = gridToScreen(unit.position, this.projection);
       view.setPosition(point.x, point.y);
       view.setDepth(point.y);
+
+      const definition = UNIT_DEFINITIONS.find(
+        (entry) => entry.kind === unit.kind
+      );
+      const maxHitPoints = definition?.maxHitPoints ?? unit.hitPoints;
+      const hpRatio = Phaser.Math.Clamp(unit.hitPoints / maxHitPoints, 0, 1);
+      const healthBar = this.unitHealthBars.get(unit.id);
+      healthBar?.setPosition(point.x, point.y - 12);
+      healthBar?.setDisplaySize(Math.max(1, 18 * hpRatio), 3);
+      healthBar?.setFillStyle(
+        hpRatio > 0.6 ? 0x7ecf7a : hpRatio > 0.3 ? 0xe0bd62 : 0xd4655d,
+        1
+      );
+      healthBar?.setDepth(point.y + 2);
+
+      const previousHitPoints = this.lastUnitHitPoints.get(unit.id);
+      if (
+        previousHitPoints !== undefined &&
+        unit.hitPoints < previousHitPoints
+      ) {
+        view.setFillStyle(0xffffff, 1);
+        this.time.delayedCall(90, () => {
+          if (view.active) {
+            view.setFillStyle(unitColor(unit), 1);
+          }
+        });
+      } else {
+        view.setFillStyle(unitColor(unit), 1);
+      }
+      this.lastUnitHitPoints.set(unit.id, unit.hitPoints);
 
       const selected = this.selectedUnitIds.has(unit.id);
       const activityColor =
@@ -841,6 +922,12 @@ export class WorldScene extends Phaser.Scene {
       });
       this.buildingIdByObject.set(view, building.id);
 
+      const healthBar = this.add
+        .rectangle(point.x, point.y - 30, 42, 4, 0x7ecf7a, 1)
+        .setOrigin(0.5, 0.5)
+        .setDepth(point.y + 2);
+      this.buildingHealthBars.set(building.id, healthBar);
+
       label = this.add
         .text(point.x, point.y + 12, "", {
           fontFamily: "monospace",
@@ -858,6 +945,17 @@ export class WorldScene extends Phaser.Scene {
     view.setPosition(point.x, point.y - 8);
     view.setDepth(point.y);
     view.setAlpha(0.35 + building.progress * 0.65);
+    const maxHitPoints = definition.maxHitPoints;
+    const hpRatio = Phaser.Math.Clamp(building.hitPoints / maxHitPoints, 0, 1);
+    const healthBar = this.buildingHealthBars.get(building.id);
+    healthBar?.setPosition(point.x, point.y - 30);
+    healthBar?.setDisplaySize(Math.max(1, 42 * hpRatio), 4);
+    healthBar?.setFillStyle(
+      hpRatio > 0.6 ? 0x7ecf7a : hpRatio > 0.3 ? 0xe0bd62 : 0xd4655d,
+      1
+    );
+    healthBar?.setDepth(point.y + 2);
+
     const selected = this.selectedBuildingId === building.id;
 
     view.setStrokeStyle(
@@ -878,10 +976,14 @@ export class WorldScene extends Phaser.Scene {
         ? ` · ${queue.unitKind.toUpperCase()} ${Math.round(queue.progress * 100)}%`
         : "";
 
+      const rallyLabel = building.rallyPoint
+        ? ` · RALLY ${building.rallyPoint.x.toFixed(1)},${building.rallyPoint.y.toFixed(1)}`
+        : "";
+
       label.setText(
         `${definition.displayName.toUpperCase()} ${Math.round(
           building.progress * 100
-        )}%${queueLabel}`
+        )}% · HP ${Math.ceil(building.hitPoints)}/${definition.maxHitPoints}${queueLabel}${rallyLabel}`
       );
     }
   }
