@@ -99,3 +99,19 @@ npm run build --workspace=@aeo2/game
 ```
 
 Vercel runs these checks before publishing the game.
+
+
+## Playable match loop
+
+Implemented:
+
+- [x] Enemy Town Center and base structures
+- [x] Unit attacks against buildings
+- [x] Building hit points and destruction
+- [x] Destroyed building footprints are released from pathfinding
+- [x] Town Center destruction ends the match
+- [x] Victory and defeat simulation state
+- [x] Enemy AI can siege the player base
+- [x] Victory / defeat overlay
+- [x] Restart flow with `R`
+- [x] Building combat and match-outcome regression tests
