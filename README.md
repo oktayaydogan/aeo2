@@ -8,6 +8,8 @@ A browser-first real-time strategy game inspired by the systemic depth and inter
 
 Phase 1 turns the engine prototype into a complete small RTS match: economy, construction, production, combat, fog, UI, AI opposition, and a win/loss loop.
 
+**Phase 1 status: COMPLETE**
+
 ### Phase 0 acceptance criteria
 
 - [x] Browser-based desktop game shell
@@ -40,7 +42,7 @@ Phase 1 turns the engine prototype into a complete small RTS match: economy, con
 - [x] Simulation unit/regression tests and a full Phase 1 vertical-slice integration test
 - [x] Game-side fog/HUD tests
 - [x] Vercel deployment gated by typecheck, simulation tests, game tests, and production build
-- [ ] Final deployment verification for the Phase 1 completion commit
+- [x] Final deployment verification for the Phase 1 implementation
 
 ## Architecture principles
 
