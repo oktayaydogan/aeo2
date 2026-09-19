@@ -567,3 +567,107 @@ describe("Simulation melee combat", () => {
     expect(snapshot.units.some((unit) => unit.id === "enemy-ai")).toBe(true);
   });
 });
+
+
+describe("Simulation rally points", () => {
+  it("moves a trained unit toward the selected building rally point", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [TOWN_CENTER],
+      unitDefinitions: [VILLAGER],
+      buildings: [
+        {
+          id: "town-center-1",
+          ownerId: "player-1",
+          kind: "town-center",
+          position: { x: 4, y: 4 },
+          progress: 1,
+          completed: true,
+          hitPoints: 2400,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 0, food: 100, gold: 0 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "set-rally-point",
+      playerId: "player-1",
+      buildingId: "town-center-1",
+      target: { x: 12.5, y: 12.5 }
+    });
+    simulation.queueCommand({
+      type: "train",
+      playerId: "player-1",
+      buildingId: "town-center-1",
+      unitKind: "villager"
+    });
+
+    const snapshot = runSteps(simulation, 260);
+    const trained = snapshot.units.find((unit) => unit.kind === "villager");
+
+    expect(snapshot.buildings[0]?.rallyPoint).toEqual({
+      x: 12.5,
+      y: 12.5
+    });
+    expect(trained?.position.x).toBeGreaterThan(8);
+    expect(trained?.position.y).toBeGreaterThan(8);
+  });
+
+  it("rejects rally changes from a different player", () => {
+    const simulation = new Simulation({
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [TOWN_CENTER],
+      buildings: [
+        {
+          id: "town-center-1",
+          ownerId: "player-1",
+          kind: "town-center",
+          position: { x: 4, y: 4 },
+          progress: 1,
+          completed: true,
+          hitPoints: 2400,
+          trainingQueue: []
+        }
+      ]
+    });
+
+    simulation.queueCommand({
+      type: "set-rally-point",
+      playerId: "player-2",
+      buildingId: "town-center-1",
+      target: { x: 10, y: 10 }
+    });
+    simulation.step();
+
+    expect(simulation.getSnapshot().buildings[0]?.rallyPoint).toBeNull();
+  });
+});
+
+describe("Simulation AI state", () => {
+  it("transitions from waiting to attacking", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      unitDefinitions: [MILITIA],
+      units: [
+        villager("target", "player-1", { x: 2, y: 2 }),
+        militia("enemy", "player-2", { x: 6, y: 2 })
+      ],
+      aiPlayers: [
+        {
+          playerId: "player-2",
+          enemyPlayerId: "player-1",
+          thinkIntervalTicks: 5
+        }
+      ]
+    });
+
+    expect(simulation.getSnapshot().aiPlayers[0]?.mode).toBe("waiting");
+    runSteps(simulation, 6);
+    expect(simulation.getSnapshot().aiPlayers[0]?.mode).toBe("attacking");
+  });
+});
