@@ -15,22 +15,18 @@ export function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
+        <div className="brand-row">
           <strong>AEO2</strong>
-          <span className="milestone">Phase 1 · Playable match vertical slice</span>
+          <span className="milestone">Playable match vertical slice</span>
         </div>
-        <div className="controls">WASD pan · wheel zoom · select · right-click move/gather/attack/rally · destroy enemy Town Center to win · R restart after match · minimap click centers camera · H house · B barracks · V villager · M militia</div>
+        <div className="controls">
+          WASD pan · wheel zoom · right-click context commands · minimap navigation
+        </div>
       </header>
 
       <section className="game-frame">
         <div ref={gameHostRef} className="game-host" />
       </section>
-
-      <footer className="statusbar">
-        <span>Simulation: fixed 20 Hz · economy loop · ?benchmark=1 for 100 entities</span>
-        <span>Rendering: Phaser 4</span>
-        <span>Client shell: React</span>
-      </footer>
     </main>
   );
 }
