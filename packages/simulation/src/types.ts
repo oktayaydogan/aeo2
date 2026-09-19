@@ -115,6 +115,14 @@ export interface BuildingState {
   completed: boolean;
   hitPoints: number;
   trainingQueue: TrainingQueueItemState[];
+  rallyPoint: Vector2 | null;
+}
+
+export type AiMode = "waiting" | "attacking" | "idle";
+
+export interface AiPlayerState {
+  playerId: string;
+  mode: AiMode;
 }
 
 export interface SimulationSnapshot {
@@ -123,6 +131,7 @@ export interface SimulationSnapshot {
   resources: readonly ResourceNodeState[];
   stockpiles: readonly PlayerStockpileState[];
   population: readonly PlayerPopulationState[];
+  aiPlayers: readonly AiPlayerState[];
   buildings: readonly BuildingState[];
 }
 
@@ -155,6 +164,13 @@ export interface TrainCommand {
   unitKind: UnitKind;
 }
 
+export interface SetRallyPointCommand {
+  type: "set-rally-point";
+  playerId: string;
+  buildingId: string;
+  target: Vector2;
+}
+
 export interface AttackCommand {
   type: "attack";
   playerId: string;
@@ -167,6 +183,7 @@ export type GameCommand =
   | GatherCommand
   | BuildCommand
   | TrainCommand
+  | SetRallyPointCommand
   | AttackCommand;
 
 export interface AiPlayerDefinition {
