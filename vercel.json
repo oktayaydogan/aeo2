@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "buildCommand": "npm run typecheck --workspace=@aeo2/simulation && npm run test --workspace=@aeo2/simulation && npm run build --workspace=@aeo2/game",
+  "buildCommand": "npm run typecheck --workspace=@aeo2/simulation && npm run test --workspace=@aeo2/simulation && npm run test --workspace=@aeo2/game && npm run build --workspace=@aeo2/game",
   "outputDirectory": "apps/game/dist",
   "installCommand": "npm install --workspaces --include=dev"
 }
