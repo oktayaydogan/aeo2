@@ -132,6 +132,7 @@ export interface SimulationSnapshot {
   stockpiles: readonly PlayerStockpileState[];
   population: readonly PlayerPopulationState[];
   aiPlayers: readonly AiPlayerState[];
+  match: MatchState;
   buildings: readonly BuildingState[];
 }
 
@@ -178,13 +179,30 @@ export interface AttackCommand {
   targetUnitId: string;
 }
 
+export interface AttackBuildingCommand {
+  type: "attack-building";
+  playerId: string;
+  unitIds: readonly string[];
+  targetBuildingId: string;
+}
+
+export type MatchStatus = "playing" | "ended";
+
+export interface MatchState {
+  status: MatchStatus;
+  winnerPlayerId: string | null;
+  loserPlayerId: string | null;
+  reason: "town-center-destroyed" | null;
+}
+
 export type GameCommand =
   | MoveCommand
   | GatherCommand
   | BuildCommand
   | TrainCommand
   | SetRallyPointCommand
-  | AttackCommand;
+  | AttackCommand
+  | AttackBuildingCommand;
 
 export interface AiPlayerDefinition {
   playerId: string;
