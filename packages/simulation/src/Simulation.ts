@@ -769,8 +769,23 @@ export class Simulation {
       const enemyUnits = [...this.units.values()]
         .filter((unit) => unit.ownerId === ai.enemyPlayerId)
         .sort((a, b) => a.id.localeCompare(b.id));
+      const enemyBuildings = [...this.buildings.values()]
+        .filter(
+          (building) =>
+            building.ownerId === ai.enemyPlayerId &&
+            building.completed
+        )
+        .sort((a, b) => {
+          if (a.kind === "town-center" && b.kind !== "town-center") {
+            return -1;
+          }
+          if (b.kind === "town-center" && a.kind !== "town-center") {
+            return 1;
+          }
+          return a.id.localeCompare(b.id);
+        });
 
-      if (enemyUnits.length === 0) {
+      if (enemyUnits.length === 0 && enemyBuildings.length === 0) {
         if (state) {
           state.mode = "idle";
         }
@@ -813,17 +828,38 @@ export class Simulation {
             a.id.localeCompare(b.id)
         )[0];
 
-        if (!target) {
+        this.clearWorkTasks(attacker);
+        attacker.activity = "attacking";
+
+        if (target) {
+          attacker.attackTask = {
+            targetType: "unit",
+            targetId: target.id
+          };
+          this.routeAttackerToTarget(attacker, target, definition);
           continue;
         }
 
-        this.clearWorkTasks(attacker);
+        const buildingTarget = enemyBuildings[0];
+        const buildingDefinition = buildingTarget
+          ? this.buildingDefinitions.get(buildingTarget.kind)
+          : undefined;
+
+        if (!buildingTarget || !buildingDefinition) {
+          attacker.activity = "idle";
+          continue;
+        }
+
         attacker.attackTask = {
-          targetType: "unit",
-          targetId: target.id
+          targetType: "building",
+          targetId: buildingTarget.id
         };
-        attacker.activity = "attacking";
-        this.routeAttackerToTarget(attacker, target, definition);
+        this.routeAttackerToBuilding(
+          attacker,
+          buildingTarget,
+          buildingDefinition,
+          definition
+        );
       }
     }
   }
