@@ -493,6 +493,25 @@ export class WorldScene extends Phaser.Scene {
     const panelHeight = 126;
 
     graphics.clear();
+
+    if (BENCHMARK_MODE) {
+      this.economyText?.setVisible(false);
+      this.objectiveText?.setVisible(false);
+      this.selectionTitleText?.setVisible(false);
+      this.selectionDetailsText?.setVisible(false);
+
+      for (const button of this.hudButtons) {
+        button.background.setVisible(false);
+        button.label.setVisible(false);
+      }
+
+      return;
+    }
+
+    this.economyText?.setVisible(true);
+    this.objectiveText?.setVisible(true);
+    this.selectionTitleText?.setVisible(true);
+    this.selectionDetailsText?.setVisible(true);
     graphics.fillStyle(0x081016, 0.9);
     graphics.fillRect(0, 0, width, 44);
     graphics.lineStyle(1, 0x52636d, 0.45);
