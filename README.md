@@ -4,9 +4,9 @@ A browser-first real-time strategy game inspired by the systemic depth and inter
 
 > This project does not copy Age of Empires II assets, audio, trademarks, maps, or proprietary game data. The goal is an original RTS with a web-native engine and production architecture.
 
-## Current milestone: Phase 0 — RTS engine prototype
+## Current milestone: Phase 1 — playable single-player vertical slice
 
-The first milestone proves the core loop and technical architecture before content expansion or multiplayer.
+Phase 1 turns the engine prototype into a complete small RTS match: economy, construction, production, combat, fog, UI, AI opposition, and a win/loss loop.
 
 ### Phase 0 acceptance criteria
 
@@ -21,6 +21,26 @@ The first milestone proves the core loop and technical architecture before conte
 - [x] 50 units can receive movement orders together
 - [x] 100 units can exist on the map with spatial-hash local separation
 - [ ] Verify performance budget in-browser on representative desktop hardware
+
+### Phase 1 completion criteria
+
+- [x] Original browser-first RTS presentation with no copied game assets
+- [x] Isometric map, camera pan/zoom, selection, group movement, and pathfinding
+- [x] Wood, food, and gold economy with villager gather/carry/drop-off loop
+- [x] House and Barracks placement, construction, collision, and destruction
+- [x] Population cap and production queues
+- [x] Town Center Villager production and Barracks Militia production
+- [x] Rally points
+- [x] Unit and building combat with hit points, cooldowns, and destruction
+- [x] Enemy base, deterministic attack AI, victory, defeat, and restart
+- [x] Fog of war, exploration memory, and interactive minimap
+- [x] Resource bar, selection panel, command buttons, production state, and hotkeys
+- [x] Original procedural prototype sprites for units, resources, and buildings
+- [x] Activity feedback for gather/build/attack states
+- [x] Simulation unit/regression tests and a full Phase 1 vertical-slice integration test
+- [x] Game-side fog/HUD tests
+- [x] Vercel deployment gated by typecheck, simulation tests, game tests, and production build
+- [ ] Final deployment verification for the Phase 1 completion commit
 
 ## Architecture principles
 
