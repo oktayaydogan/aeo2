@@ -56,6 +56,12 @@ interface DragSelectionState {
   startWorld: Point2;
 }
 
+interface HudButton {
+  background: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+  command: "house" | "barracks" | "villager" | "militia";
+}
+
 export class WorldScene extends Phaser.Scene {
   private readonly simulation = new Simulation({
     tickRate: DEFAULT_TICK_RATE,
@@ -153,9 +159,14 @@ export class WorldScene extends Phaser.Scene {
   private fogGraphics?: Phaser.GameObjects.Graphics;
   private minimapGraphics?: Phaser.GameObjects.Graphics;
   private minimapHitArea?: Phaser.GameObjects.Rectangle;
+  private hudGraphics?: Phaser.GameObjects.Graphics;
   private metricsText?: Phaser.GameObjects.Text;
   private economyText?: Phaser.GameObjects.Text;
+  private selectionTitleText?: Phaser.GameObjects.Text;
+  private selectionDetailsText?: Phaser.GameObjects.Text;
+  private objectiveText?: Phaser.GameObjects.Text;
   private matchText?: Phaser.GameObjects.Text;
+  private readonly hudButtons: HudButton[] = [];
   private dragSelection?: DragSelectionState;
   private placementKind?: BuildingKind;
   private selectedBuildingId?: string;
@@ -205,19 +216,55 @@ export class WorldScene extends Phaser.Scene {
       (pointer: Phaser.Input.Pointer) => this.centerCameraFromMinimap(pointer)
     );
 
+    this.hudGraphics = this.add
+      .graphics()
+      .setScrollFactor(0)
+      .setDepth(100_000);
+
     this.economyText = this.add
-      .text(14, 14, "", {
-        fontFamily: "monospace",
-        fontSize: "14px",
-        color: "#f3ead0",
-        backgroundColor: "#091017dd",
-        padding: { x: 9, y: 7 }
+      .text(18, 14, "", {
+        fontFamily: "Inter, Arial, sans-serif",
+        fontSize: "15px",
+        fontStyle: "bold",
+        color: "#f5ead0"
       })
       .setScrollFactor(0)
-      .setDepth(100_001);
+      .setDepth(100_004);
+
+    this.objectiveText = this.add
+      .text(this.scale.width / 2, 16, "Destroy the enemy Town Center", {
+        fontFamily: "Inter, Arial, sans-serif",
+        fontSize: "13px",
+        color: "#d9cfae"
+      })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(100_004);
+
+    this.selectionTitleText = this.add
+      .text(24, this.scale.height - 108, "No selection", {
+        fontFamily: "Inter, Arial, sans-serif",
+        fontSize: "18px",
+        fontStyle: "bold",
+        color: "#f5ead0"
+      })
+      .setScrollFactor(0)
+      .setDepth(100_004);
+
+    this.selectionDetailsText = this.add
+      .text(24, this.scale.height - 78, "", {
+        fontFamily: "Inter, Arial, sans-serif",
+        fontSize: "13px",
+        color: "#b9c5cc",
+        lineSpacing: 4
+      })
+      .setScrollFactor(0)
+      .setDepth(100_004);
+
+    this.createHudButtons();
 
     this.metricsText = this.add
-      .text(14, 144, "", {
+      .text(14, 54, "", {
         fontFamily: "monospace",
         fontSize: "12px",
         color: "#d7e1e7",
@@ -225,7 +272,8 @@ export class WorldScene extends Phaser.Scene {
         padding: { x: 8, y: 6 }
       })
       .setScrollFactor(0)
-      .setDepth(100_001);
+      .setDepth(100_001)
+      .setVisible(BENCHMARK_MODE);
 
     this.matchText = this.add
       .text(this.scale.width / 2, this.scale.height / 2, "", {
@@ -268,6 +316,7 @@ export class WorldScene extends Phaser.Scene {
     this.renderSnapshot(snapshot);
     this.renderMinimap(snapshot);
     this.updateMetrics(delta, snapshot);
+    this.layoutHud(snapshot);
     this.updateHud(snapshot);
     this.updateMatchOverlay(snapshot);
   }
@@ -386,6 +435,106 @@ export class WorldScene extends Phaser.Scene {
     this.lastUnitHitPoints.set(unit.id, unit.hitPoints);
     this.unitIdByObject.set(circle, unit.id);
     return circle;
+  }
+
+  private createHudButtons(): void {
+    const commands: HudButton["command"][] = [
+      "house",
+      "barracks",
+      "villager",
+      "militia"
+    ];
+
+    for (const command of commands) {
+      const background = this.add
+        .rectangle(0, 0, 108, 54, 0x18242c, 0.96)
+        .setScrollFactor(0)
+        .setDepth(100_004)
+        .setStrokeStyle(1, 0x60717b, 0.8)
+        .setInteractive({ useHandCursor: true });
+
+      const label = this.add
+        .text(0, 0, "", {
+          fontFamily: "Inter, Arial, sans-serif",
+          fontSize: "12px",
+          align: "center",
+          color: "#f4ead1"
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(100_005);
+
+      background.on("pointerdown", () => {
+        if (command === "house" || command === "barracks") {
+          this.setPlacementMode(command);
+          return;
+        }
+
+        this.issueTrainCommand(command);
+      });
+
+      this.hudButtons.push({
+        background,
+        label,
+        command
+      });
+    }
+  }
+
+  private layoutHud(snapshot: SimulationSnapshot): void {
+    const graphics = this.hudGraphics;
+
+    if (!graphics) {
+      return;
+    }
+
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const panelHeight = 126;
+
+    graphics.clear();
+    graphics.fillStyle(0x081016, 0.9);
+    graphics.fillRect(0, 0, width, 44);
+    graphics.lineStyle(1, 0x52636d, 0.45);
+    graphics.lineBetween(0, 44, width, 44);
+
+    graphics.fillStyle(0x081016, 0.94);
+    graphics.fillRect(0, height - panelHeight, width, panelHeight);
+    graphics.lineStyle(1, 0x52636d, 0.55);
+    graphics.lineBetween(0, height - panelHeight, width, height - panelHeight);
+
+    this.objectiveText?.setPosition(width / 2, 14);
+    this.selectionTitleText?.setPosition(24, height - 108);
+    this.selectionDetailsText?.setPosition(24, height - 78);
+
+    const buttonStartX = Math.max(360, width - 490);
+    const buttonY = height - 64;
+
+    this.hudButtons.forEach((button, index) => {
+      const x = buttonStartX + index * 116;
+      button.background.setPosition(x, buttonY);
+      button.label.setPosition(x, buttonY);
+    });
+
+    if (snapshot.match.status === "ended") {
+      for (const button of this.hudButtons) {
+        this.setHudButtonEnabled(button, false);
+      }
+    }
+  }
+
+  private setHudButtonEnabled(button: HudButton, enabled: boolean): void {
+    button.background
+      .setAlpha(enabled ? 1 : 0.35)
+      .setFillStyle(enabled ? 0x18242c : 0x11181d, 0.96);
+
+    button.label.setAlpha(enabled ? 1 : 0.45);
+
+    if (enabled) {
+      button.background.setInteractive({ useHandCursor: true });
+    } else {
+      button.background.disableInteractive();
+    }
   }
 
   private configureInput(): void {
@@ -1108,52 +1257,149 @@ export class WorldScene extends Phaser.Scene {
     const stockpile = snapshot.stockpiles.find(
       (entry) => entry.playerId === "player-1"
     );
-
-    const selectedUnits = snapshot.units.filter((unit) =>
-      this.selectedUnitIds.has(unit.id)
-    );
-    const carrying = selectedUnits.reduce(
-      (total, unit) => total + (unit.cargo?.amount ?? 0),
-      0
-    );
     const population = snapshot.population.find(
       (entry) => entry.playerId === "player-1"
+    );
+    const selectedUnits = snapshot.units.filter((unit) =>
+      this.selectedUnitIds.has(unit.id)
     );
     const selectedBuilding = snapshot.buildings.find(
       (building) => building.id === this.selectedBuildingId
     );
-    const aiState = snapshot.aiPlayers.find(
-      (entry) => entry.playerId === "player-2"
-    );
-    const trainingHint =
-      selectedBuilding?.kind === "town-center"
-        ? "V Villager 50F"
-        : selectedBuilding?.kind === "barracks"
-          ? "M Militia 60F 20G"
-          : "No units train here";
-    const queueText =
-      selectedBuilding && selectedBuilding.trainingQueue.length > 0
-        ? selectedBuilding.trainingQueue
-            .map(
-              (item, index) =>
-                `${index + 1}:${item.unitKind} ${Math.round(item.progress * 100)}%`
-            )
-            .join(" · ")
-        : "queue empty";
 
-    this.economyText.setText([
-      `WOOD ${Math.floor(stockpile?.resources.wood ?? 0)}   FOOD ${Math.floor(
+    this.economyText.setText(
+      `WOOD  ${Math.floor(stockpile?.resources.wood ?? 0)}     FOOD  ${Math.floor(
         stockpile?.resources.food ?? 0
-      )}   GOLD ${Math.floor(stockpile?.resources.gold ?? 0)}   POP ${population?.used ?? 0}/${population?.cap ?? 0}${population?.queued ? ` (+${population.queued})` : ""}`,
-      `selected units ${selectedUnits.length} · carrying ${carrying.toFixed(1)}`,
-      this.selectedBuildingId
-        ? `selected building ${this.selectedBuildingId} · ${trainingHint} · ${queueText}`
-        : `build: H House 25W · B Barracks 75W${this.placementKind ? ` · placing ${this.placementKind}` : ""}`,
-      `AI ${aiState?.mode ?? "off"} · building selected + right-click: rally`,
+      )}     GOLD  ${Math.floor(
+        stockpile?.resources.gold ?? 0
+      )}     POP  ${population?.used ?? 0}/${population?.cap ?? 0}${
+        population?.queued ? ` (+${population.queued})` : ""
+      }`
+    );
+
+    if (selectedBuilding) {
+      const definition = BUILDING_DEFINITIONS.find(
+        (entry) => entry.kind === selectedBuilding.kind
+      );
+      const queue =
+        selectedBuilding.trainingQueue.length > 0
+          ? selectedBuilding.trainingQueue
+              .map(
+                (item, index) =>
+                  `${index + 1}. ${item.unitKind} ${Math.round(
+                    item.progress * 100
+                  )}%`
+              )
+              .join("   ")
+          : "Queue empty";
+
+      this.selectionTitleText?.setText(
+        definition?.displayName ?? selectedBuilding.kind
+      );
+      this.selectionDetailsText?.setText([
+        `HP ${Math.ceil(selectedBuilding.hitPoints)}/${
+          definition?.maxHitPoints ?? selectedBuilding.hitPoints
+        }`,
+        queue,
+        selectedBuilding.rallyPoint
+          ? `Rally ${selectedBuilding.rallyPoint.x.toFixed(
+              1
+            )}, ${selectedBuilding.rallyPoint.y.toFixed(1)}`
+          : "Right-click ground to set rally"
+      ]);
+    } else if (selectedUnits.length > 0) {
+      const primary = selectedUnits[0];
+      const sameKind = selectedUnits.every(
+        (unit) => unit.kind === primary?.kind
+      );
+      const label = sameKind
+        ? UNIT_DEFINITIONS.find((entry) => entry.kind === primary?.kind)
+            ?.displayName ?? primary?.kind ?? "Units"
+        : "Mixed units";
+      const averageHp =
+        selectedUnits.reduce((sum, unit) => sum + unit.hitPoints, 0) /
+        selectedUnits.length;
+      const carrying = selectedUnits.reduce(
+        (sum, unit) => sum + (unit.cargo?.amount ?? 0),
+        0
+      );
+
+      this.selectionTitleText?.setText(
+        selectedUnits.length === 1
+          ? label
+          : `${selectedUnits.length} × ${label}`
+      );
+      this.selectionDetailsText?.setText([
+        `Average HP ${averageHp.toFixed(0)}`,
+        `Activity ${primary?.activity ?? "idle"}`,
+        carrying > 0 ? `Carrying ${carrying.toFixed(1)}` : "Ready"
+      ]);
+    } else {
+      this.selectionTitleText?.setText("No selection");
+      this.selectionDetailsText?.setText([
+        "Select villagers to gather or build.",
+        "Select a production building to train units."
+      ]);
+    }
+
+    const wood = stockpile?.resources.wood ?? 0;
+    const food = stockpile?.resources.food ?? 0;
+    const gold = stockpile?.resources.gold ?? 0;
+    const popAvailable =
+      (population?.used ?? 0) + (population?.queued ?? 0) <
+      (population?.cap ?? 0);
+    const hasVillagerSelected = selectedUnits.some(
+      (unit) => unit.kind === "villager"
+    );
+
+    for (const button of this.hudButtons) {
+      let enabled = false;
+      let label = "";
+
+      switch (button.command) {
+        case "house":
+          label = "HOUSE\n25 Wood   [H]";
+          enabled = hasVillagerSelected && wood >= 25;
+          break;
+        case "barracks":
+          label = "BARRACKS\n75 Wood   [B]";
+          enabled = hasVillagerSelected && wood >= 75;
+          break;
+        case "villager":
+          label = "VILLAGER\n50 Food   [V]";
+          enabled =
+            selectedBuilding?.kind === "town-center" &&
+            selectedBuilding.completed &&
+            food >= 50 &&
+            popAvailable;
+          break;
+        case "militia":
+          label = "MILITIA\n60 Food · 20 Gold   [M]";
+          enabled =
+            selectedBuilding?.kind === "barracks" &&
+            selectedBuilding.completed &&
+            food >= 60 &&
+            gold >= 20 &&
+            popAvailable;
+          break;
+      }
+
+      button.label.setText(label);
+      button.background.setVisible(!BENCHMARK_MODE);
+      button.label.setVisible(!BENCHMARK_MODE);
+      this.setHudButtonEnabled(
+        button,
+        !BENCHMARK_MODE &&
+          snapshot.match.status === "playing" &&
+          enabled
+      );
+    }
+
+    this.objectiveText?.setText(
       snapshot.match.status === "ended"
-        ? "Match ended · R restart"
-        : "Right-click resource: gather · enemy unit/building: attack · Esc: cancel build"
-    ]);
+        ? "Match complete"
+        : "Objective · Destroy the enemy Town Center"
+    );
   }
 
   private updateMatchOverlay(snapshot: SimulationSnapshot): void {
