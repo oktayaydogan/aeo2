@@ -157,6 +157,7 @@ export class WorldScene extends Phaser.Scene {
   private simulationCostMs = 0;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
+  private unitSelectionGraphics?: Phaser.GameObjects.Graphics;
   private placementGraphics?: Phaser.GameObjects.Graphics;
   private fogGraphics?: Phaser.GameObjects.Graphics;
   private minimapGraphics?: Phaser.GameObjects.Graphics;
@@ -194,6 +195,10 @@ export class WorldScene extends Phaser.Scene {
       .graphics()
       .setScrollFactor(0)
       .setDepth(100_000);
+
+    this.unitSelectionGraphics = this.add
+      .graphics()
+      .setDepth(79_999);
 
     this.placementGraphics = this.add
       .graphics()
@@ -1444,6 +1449,8 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private renderSnapshot(snapshot: SimulationSnapshot): void {
+    this.unitSelectionGraphics?.clear();
+
     const liveUnitIds = new Set(snapshot.units.map((unit) => unit.id));
     const liveBuildingIds = new Set(
       snapshot.buildings.map((building) => building.id)
@@ -1550,10 +1557,23 @@ export class WorldScene extends Phaser.Scene {
                 ? 0xe98673
                 : 0xf7e7a9;
 
+      const activityPhase = snapshot.tick * 0.22;
+      const activityOffset =
+        unit.activity === "gathering" || unit.activity === "building"
+          ? Math.sin(activityPhase + unit.id.length) * 1.6
+          : 0;
+      const attackRotation =
+        unit.activity === "attacking"
+          ? Math.sin(activityPhase * 1.5 + unit.id.length) * 0.12
+          : 0;
+
+      view.setY(point.y - 7 + activityOffset);
+      view.setRotation(attackRotation);
       view.setScale(selected ? 1.12 : 1);
-      if (selected && this.selectionGraphics) {
-        this.selectionGraphics.lineStyle(2, activityColor, 0.95);
-        this.selectionGraphics.strokeCircle(point.x, point.y + 1, 11);
+
+      if (selected && this.unitSelectionGraphics) {
+        this.unitSelectionGraphics.lineStyle(2, activityColor, 0.95);
+        this.unitSelectionGraphics.strokeEllipse(point.x, point.y + 2, 24, 10);
       }
     }
 
