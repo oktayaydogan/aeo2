@@ -81,6 +81,12 @@ export class GridNavigation {
     }
   }
 
+  unblockCells(cells: readonly GridCell[]): void {
+    for (const cell of cells) {
+      this.dynamicBlocked.delete(cellKey(cell.x, cell.y));
+    }
+  }
+
   resolveTarget(target: Vector2): Vector2 | null {
     const clamped = this.clampWorldPoint(target);
     const requestedCell = worldToCell(clamped);
