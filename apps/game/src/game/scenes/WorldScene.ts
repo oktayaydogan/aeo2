@@ -74,6 +74,26 @@ export class WorldScene extends Phaser.Scene {
         completed: true,
         hitPoints: 2400,
         trainingQueue: []
+      },
+      {
+        id: "enemy-town-center",
+        ownerId: "player-2",
+        kind: "town-center",
+        position: { x: 14, y: 2 },
+        progress: 1,
+        completed: true,
+        hitPoints: 2400,
+        trainingQueue: []
+      },
+      {
+        id: "enemy-house",
+        ownerId: "player-2",
+        kind: "house",
+        position: { x: 15, y: 7 },
+        progress: 1,
+        completed: true,
+        hitPoints: 550,
+        trainingQueue: []
       }
     ],
     dropOffPoints: [
@@ -118,6 +138,7 @@ export class WorldScene extends Phaser.Scene {
   private readonly resourceIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly buildingViews = new Map<string, Phaser.GameObjects.Rectangle>();
   private readonly buildingHealthBars = new Map<string, Phaser.GameObjects.Rectangle>();
+  private readonly lastBuildingHitPoints = new Map<string, number>();
   private readonly buildingLabels = new Map<string, Phaser.GameObjects.Text>();
   private readonly buildingIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly fog = new FogOfWar(MAP_SIZE, MAP_SIZE);
@@ -134,6 +155,7 @@ export class WorldScene extends Phaser.Scene {
   private minimapHitArea?: Phaser.GameObjects.Rectangle;
   private metricsText?: Phaser.GameObjects.Text;
   private economyText?: Phaser.GameObjects.Text;
+  private matchText?: Phaser.GameObjects.Text;
   private dragSelection?: DragSelectionState;
   private placementKind?: BuildingKind;
   private selectedBuildingId?: string;
@@ -195,7 +217,7 @@ export class WorldScene extends Phaser.Scene {
       .setDepth(100_001);
 
     this.metricsText = this.add
-      .text(14, 124, "", {
+      .text(14, 144, "", {
         fontFamily: "monospace",
         fontSize: "12px",
         color: "#d7e1e7",
@@ -204,6 +226,20 @@ export class WorldScene extends Phaser.Scene {
       })
       .setScrollFactor(0)
       .setDepth(100_001);
+
+    this.matchText = this.add
+      .text(this.scale.width / 2, this.scale.height / 2, "", {
+        fontFamily: "monospace",
+        fontSize: "34px",
+        color: "#fff6d5",
+        backgroundColor: "#081016ee",
+        align: "center",
+        padding: { x: 24, y: 18 }
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(200_000)
+      .setVisible(false);
 
     this.configureInput();
 
@@ -233,6 +269,7 @@ export class WorldScene extends Phaser.Scene {
     this.renderMinimap(snapshot);
     this.updateMetrics(delta, snapshot);
     this.updateHud(snapshot);
+    this.updateMatchOverlay(snapshot);
   }
 
   private drawMap(): void {
@@ -376,6 +413,13 @@ export class WorldScene extends Phaser.Scene {
       this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.V)
         .on("down", () => this.issueTrainCommand("villager"));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.R)
+        .on("down", () => {
+          if (this.simulation.getSnapshot().match.status === "ended") {
+            window.location.reload();
+          }
+        });
     }
 
     this.input.on(
@@ -392,11 +436,15 @@ export class WorldScene extends Phaser.Scene {
         if (pointer.rightButtonDown()) {
           const resourceId = this.findResourceUnderPointer(currentlyOver);
           const targetUnitId = this.findEnemyUnitUnderPointer(currentlyOver);
+          const targetBuildingId =
+            this.findEnemyBuildingUnderPointer(currentlyOver);
 
           if (resourceId) {
             this.issueGatherCommand(resourceId);
           } else if (targetUnitId) {
             this.issueAttackCommand(targetUnitId);
+          } else if (targetBuildingId) {
+            this.issueAttackBuildingCommand(targetBuildingId);
           } else if (this.selectedBuildingId) {
             this.issueRallyPointCommand(pointer);
           } else {
@@ -489,6 +537,43 @@ export class WorldScene extends Phaser.Scene {
     }
 
     return undefined;
+  }
+
+  private findEnemyBuildingUnderPointer(
+    currentlyOver: Phaser.GameObjects.GameObject[]
+  ): string | undefined {
+    const snapshot = this.simulation.getSnapshot();
+
+    for (const gameObject of currentlyOver) {
+      const buildingId = this.buildingIdByObject.get(gameObject);
+
+      if (!buildingId) {
+        continue;
+      }
+
+      const building = snapshot.buildings.find(
+        (entry) => entry.id === buildingId
+      );
+
+      if (building && building.ownerId !== "player-1") {
+        return building.id;
+      }
+    }
+
+    return undefined;
+  }
+
+  private issueAttackBuildingCommand(targetBuildingId: string): void {
+    if (this.selectedUnitIds.size === 0) {
+      return;
+    }
+
+    this.simulation.queueCommand({
+      type: "attack-building",
+      playerId: "player-1",
+      unitIds: [...this.selectedUnitIds],
+      targetBuildingId
+    });
   }
 
   private issueAttackCommand(targetUnitId: string): void {
@@ -1065,8 +1150,35 @@ export class WorldScene extends Phaser.Scene {
         ? `selected building ${this.selectedBuildingId} · ${trainingHint} · ${queueText}`
         : `build: H House 25W · B Barracks 75W${this.placementKind ? ` · placing ${this.placementKind}` : ""}`,
       `AI ${aiState?.mode ?? "off"} · building selected + right-click: rally`,
-      "Right-click resource: gather · enemy: attack · Esc: cancel build"
+      snapshot.match.status === "ended"
+        ? "Match ended · R restart"
+        : "Right-click resource: gather · enemy unit/building: attack · Esc: cancel build"
     ]);
+  }
+
+  private updateMatchOverlay(snapshot: SimulationSnapshot): void {
+    if (!this.matchText) {
+      return;
+    }
+
+    if (snapshot.match.status !== "ended") {
+      this.matchText.setVisible(false);
+      return;
+    }
+
+    const victory = snapshot.match.winnerPlayerId === "player-1";
+
+    this.matchText
+      .setPosition(this.scale.width / 2, this.scale.height / 2)
+      .setText([
+        victory ? "VICTORY" : "DEFEAT",
+        victory
+          ? "Enemy Town Center destroyed"
+          : "Your Town Center was destroyed",
+        "",
+        "Press R to restart"
+      ])
+      .setVisible(true);
   }
 
   private updateCamera(delta: number): void {
@@ -1089,6 +1201,28 @@ export class WorldScene extends Phaser.Scene {
 
   private renderSnapshot(snapshot: SimulationSnapshot): void {
     const liveUnitIds = new Set(snapshot.units.map((unit) => unit.id));
+    const liveBuildingIds = new Set(
+      snapshot.buildings.map((building) => building.id)
+    );
+
+    for (const [buildingId, view] of this.buildingViews) {
+      if (liveBuildingIds.has(buildingId)) {
+        continue;
+      }
+
+      this.buildingIdByObject.delete(view);
+      view.destroy();
+      this.buildingHealthBars.get(buildingId)?.destroy();
+      this.buildingHealthBars.delete(buildingId);
+      this.buildingLabels.get(buildingId)?.destroy();
+      this.buildingLabels.delete(buildingId);
+      this.lastBuildingHitPoints.delete(buildingId);
+      this.buildingViews.delete(buildingId);
+
+      if (this.selectedBuildingId === buildingId) {
+        this.selectedBuildingId = undefined;
+      }
+    }
 
     for (const [unitId, view] of this.unitViews) {
       if (liveUnitIds.has(unitId)) {
@@ -1261,11 +1395,7 @@ export class WorldScene extends Phaser.Scene {
           point.y - 8,
           28 + definition.footprint.width * 10,
           18 + definition.footprint.height * 7,
-          building.kind === "town-center"
-            ? 0x8b6b45
-            : building.kind === "house"
-              ? 0x9a744c
-              : 0x7d5148,
+          buildingColor(building),
           1
         )
         .setStrokeStyle(2, 0xe4d2ad, 0.9);
@@ -1298,6 +1428,7 @@ export class WorldScene extends Phaser.Scene {
 
       this.buildingViews.set(building.id, view);
       this.buildingLabels.set(building.id, label);
+      this.lastBuildingHitPoints.set(building.id, building.hitPoints);
     }
 
     view.setVisible(true);
@@ -1316,6 +1447,22 @@ export class WorldScene extends Phaser.Scene {
       1
     );
     healthBar?.setDepth(point.y + 2);
+
+    const previousHitPoints = this.lastBuildingHitPoints.get(building.id);
+    if (
+      previousHitPoints !== undefined &&
+      building.hitPoints < previousHitPoints
+    ) {
+      view.setFillStyle(0xffffff, 1);
+      this.time.delayedCall(100, () => {
+        if (view.active) {
+          view.setFillStyle(buildingColor(building), 1);
+        }
+      });
+    } else {
+      view.setFillStyle(buildingColor(building), 1);
+    }
+    this.lastBuildingHitPoints.set(building.id, building.hitPoints);
 
     const selected = this.selectedBuildingId === building.id;
 
@@ -1462,6 +1609,22 @@ function buildingVisionRadius(building: BuildingState): number {
   }
 
   return building.kind === "barracks" ? 4.6 : 3.6;
+}
+
+function buildingColor(building: BuildingState): number {
+  if (building.ownerId !== "player-1") {
+    return building.kind === "town-center"
+      ? 0x8f4c48
+      : building.kind === "house"
+        ? 0x854d43
+        : 0x74453f;
+  }
+
+  return building.kind === "town-center"
+    ? 0x8b6b45
+    : building.kind === "house"
+      ? 0x9a744c
+      : 0x7d5148;
 }
 
 function unitColor(unit: UnitState): number {
