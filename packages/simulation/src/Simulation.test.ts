@@ -671,3 +671,146 @@ describe("Simulation AI state", () => {
     expect(simulation.getSnapshot().aiPlayers[0]?.mode).toBe("attacking");
   });
 });
+
+
+describe("Simulation building combat and match outcome", () => {
+  const FRAGILE_TOWN_CENTER = {
+    ...TOWN_CENTER,
+    maxHitPoints: 12
+  };
+
+  it("ends the match when the enemy Town Center is destroyed", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [FRAGILE_TOWN_CENTER],
+      unitDefinitions: [MILITIA],
+      units: [
+        militia("player-militia", "player-1", { x: 3.4, y: 5 })
+      ],
+      buildings: [
+        {
+          id: "enemy-town-center",
+          ownerId: "player-2",
+          kind: "town-center",
+          position: { x: 4, y: 4 },
+          progress: 1,
+          completed: true,
+          hitPoints: 12,
+          trainingQueue: []
+        }
+      ]
+    });
+
+    simulation.queueCommand({
+      type: "attack-building",
+      playerId: "player-1",
+      unitIds: ["player-militia"],
+      targetBuildingId: "enemy-town-center"
+    });
+
+    const snapshot = runSteps(simulation, 100);
+
+    expect(
+      snapshot.buildings.some(
+        (building) => building.id === "enemy-town-center"
+      )
+    ).toBe(false);
+    expect(snapshot.match).toEqual({
+      status: "ended",
+      winnerPlayerId: "player-1",
+      loserPlayerId: "player-2",
+      reason: "town-center-destroyed"
+    });
+  });
+
+  it("lets enemy AI siege the Town Center when no defending units remain", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [FRAGILE_TOWN_CENTER],
+      unitDefinitions: [MILITIA],
+      units: [
+        militia("enemy-ai", "player-2", { x: 3.4, y: 5 })
+      ],
+      buildings: [
+        {
+          id: "player-town-center",
+          ownerId: "player-1",
+          kind: "town-center",
+          position: { x: 4, y: 4 },
+          progress: 1,
+          completed: true,
+          hitPoints: 12,
+          trainingQueue: []
+        }
+      ],
+      aiPlayers: [
+        {
+          playerId: "player-2",
+          enemyPlayerId: "player-1",
+          thinkIntervalTicks: 1
+        }
+      ]
+    });
+
+    const snapshot = runSteps(simulation, 100);
+
+    expect(snapshot.match.status).toBe("ended");
+    expect(snapshot.match.winnerPlayerId).toBe("player-2");
+    expect(snapshot.match.loserPlayerId).toBe("player-1");
+  });
+
+  it("releases pathfinding cells after a non-Town-Center building is destroyed", () => {
+    const fragileHouse = {
+      ...HOUSE,
+      maxHitPoints: 4
+    };
+
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 12, height: 10 },
+      buildingDefinitions: [fragileHouse],
+      unitDefinitions: [MILITIA],
+      units: [
+        militia("attacker", "player-1", { x: 3.4, y: 4.5 })
+      ],
+      buildings: [
+        {
+          id: "enemy-house",
+          ownerId: "player-2",
+          kind: "house",
+          position: { x: 4, y: 4 },
+          progress: 1,
+          completed: true,
+          hitPoints: 4,
+          trainingQueue: []
+        }
+      ]
+    });
+
+    simulation.queueCommand({
+      type: "attack-building",
+      playerId: "player-1",
+      unitIds: ["attacker"],
+      targetBuildingId: "enemy-house"
+    });
+
+    runSteps(simulation, 5);
+
+    expect(simulation.getSnapshot().buildings).toHaveLength(0);
+    expect(simulation.getSnapshot().match.status).toBe("playing");
+
+    simulation.queueCommand({
+      type: "move",
+      playerId: "player-1",
+      unitIds: ["attacker"],
+      target: { x: 5.5, y: 4.5 }
+    });
+
+    const snapshot = runSteps(simulation, 30);
+    const attacker = snapshot.units.find((unit) => unit.id === "attacker");
+
+    expect(attacker?.position.x).toBeGreaterThan(4);
+  });
+});
