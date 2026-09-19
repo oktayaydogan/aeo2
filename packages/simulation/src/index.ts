@@ -1,7 +1,9 @@
 export { GridNavigation } from "./GridNavigation";
 export { DEFAULT_TICK_RATE, Simulation } from "./Simulation";
 export type {
+  AiMode,
   AiPlayerDefinition,
+  AiPlayerState,
   AttackCommand,
   BuildCommand,
   BuildingDefinition,
@@ -19,6 +21,7 @@ export type {
   ResourceKind,
   ResourceNodeState,
   ResourceStockpile,
+  SetRallyPointCommand,
   SimulationOptions,
   SimulationSnapshot,
   TrainCommand,
