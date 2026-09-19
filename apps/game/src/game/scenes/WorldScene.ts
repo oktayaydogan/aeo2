@@ -17,6 +17,7 @@ import {
   type Point2
 } from "../isometric";
 import { BLOCKED_CELL_KEYS, PROTOTYPE_MAP } from "../prototypeMap";
+import { getHudCommandAvailability } from "../hudState";
 import { FogOfWar } from "../visibility";
 
 const MAP_SIZE = 20;
@@ -1361,56 +1362,35 @@ export class WorldScene extends Phaser.Scene {
       ]);
     }
 
-    const wood = stockpile?.resources.wood ?? 0;
-    const food = stockpile?.resources.food ?? 0;
-    const gold = stockpile?.resources.gold ?? 0;
-    const popAvailable =
-      (population?.used ?? 0) + (population?.queued ?? 0) <
-      (population?.cap ?? 0);
-    const hasVillagerSelected = selectedUnits.some(
-      (unit) => unit.kind === "villager"
-    );
+    const availability = getHudCommandAvailability({
+      selectedUnitKinds: selectedUnits.map((unit) => unit.kind),
+      selectedBuildingKind: selectedBuilding?.kind,
+      selectedBuildingCompleted: selectedBuilding?.completed,
+      resources: {
+        wood: stockpile?.resources.wood ?? 0,
+        food: stockpile?.resources.food ?? 0,
+        gold: stockpile?.resources.gold ?? 0
+      },
+      populationUsed: population?.used ?? 0,
+      populationQueued: population?.queued ?? 0,
+      populationCap: population?.cap ?? 0,
+      matchEnded: snapshot.match.status === "ended"
+    });
+
+    const buttonLabels: Record<HudButton["command"], string> = {
+      house: "HOUSE\n25 Wood   [H]",
+      barracks: "BARRACKS\n75 Wood   [B]",
+      villager: "VILLAGER\n50 Food   [V]",
+      militia: "MILITIA\n60 Food · 20 Gold   [M]"
+    };
 
     for (const button of this.hudButtons) {
-      let enabled = false;
-      let label = "";
-
-      switch (button.command) {
-        case "house":
-          label = "HOUSE\n25 Wood   [H]";
-          enabled = hasVillagerSelected && wood >= 25;
-          break;
-        case "barracks":
-          label = "BARRACKS\n75 Wood   [B]";
-          enabled = hasVillagerSelected && wood >= 75;
-          break;
-        case "villager":
-          label = "VILLAGER\n50 Food   [V]";
-          enabled =
-            selectedBuilding?.kind === "town-center" &&
-            selectedBuilding.completed &&
-            food >= 50 &&
-            popAvailable;
-          break;
-        case "militia":
-          label = "MILITIA\n60 Food · 20 Gold   [M]";
-          enabled =
-            selectedBuilding?.kind === "barracks" &&
-            selectedBuilding.completed &&
-            food >= 60 &&
-            gold >= 20 &&
-            popAvailable;
-          break;
-      }
-
-      button.label.setText(label);
+      button.label.setText(buttonLabels[button.command]);
       button.background.setVisible(!BENCHMARK_MODE);
       button.label.setVisible(!BENCHMARK_MODE);
       this.setHudButtonEnabled(
         button,
-        !BENCHMARK_MODE &&
-          snapshot.match.status === "playing" &&
-          enabled
+        !BENCHMARK_MODE && availability[button.command]
       );
     }
 
