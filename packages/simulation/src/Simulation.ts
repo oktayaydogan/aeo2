@@ -1,6 +1,7 @@
 import { GridNavigation } from "./GridNavigation";
 import type {
   AiPlayerDefinition,
+  AiPlayerState,
   AttackCommand,
   BuildCommand,
   BuildingDefinition,
@@ -15,6 +16,7 @@ import type {
   ResourceNodeState,
   ResourceStockpile,
   SimulationOptions,
+  SetRallyPointCommand,
   SimulationSnapshot,
   TrainCommand,
   UnitDefinition,
@@ -79,6 +81,7 @@ export class Simulation {
   private readonly unitDefinitions = new Map<string, UnitDefinition>();
   private readonly buildings = new Map<string, BuildingState>();
   private readonly aiPlayers: readonly AiPlayerDefinition[];
+  private readonly aiStates = new Map<string, AiPlayerState>();
   private readonly commandQueue: GameCommand[] = [];
 
   constructor(options: SimulationOptions = {}) {
@@ -93,6 +96,12 @@ export class Simulation {
       ...definition,
       thinkIntervalTicks: definition.thinkIntervalTicks ?? this.tickRate
     }));
+    for (const ai of this.aiPlayers) {
+      this.aiStates.set(ai.playerId, {
+        playerId: ai.playerId,
+        mode: "waiting"
+      });
+    }
     this.navigation = new GridNavigation(
       options.map ?? {
         width: DEFAULT_MAP_SIZE,
@@ -216,6 +225,7 @@ export class Simulation {
       population: this.playerIds().map((playerId) =>
         this.calculatePopulation(playerId)
       ),
+      aiPlayers: [...this.aiStates.values()].map((state) => ({ ...state })),
       buildings: [...this.buildings.values()].map(cloneBuilding)
     };
   }
@@ -236,6 +246,9 @@ export class Simulation {
           break;
         case "train":
           this.applyTrainCommand(command);
+          break;
+        case "set-rally-point":
+          this.applySetRallyPointCommand(command);
           break;
         case "attack":
           this.applyAttackCommand(command);
@@ -365,7 +378,8 @@ export class Simulation {
       progress: 0,
       completed: false,
       hitPoints: 1,
-      trainingQueue: []
+      trainingQueue: [],
+      rallyPoint: null
     };
 
     this.buildings.set(building.id, building);
@@ -424,6 +438,26 @@ export class Simulation {
       unitKind: definition.kind,
       progress: 0
     });
+  }
+
+  private applySetRallyPointCommand(command: SetRallyPointCommand): void {
+    const building = this.buildings.get(command.buildingId);
+
+    if (
+      !building ||
+      building.ownerId !== command.playerId ||
+      !building.completed
+    ) {
+      return;
+    }
+
+    const resolved = this.navigation.resolveTarget(command.target);
+
+    if (!resolved) {
+      return;
+    }
+
+    building.rallyPoint = { ...resolved };
   }
 
   private applyAttackCommand(command: AttackCommand): void {
@@ -628,7 +662,7 @@ export class Simulation {
       }
 
       const unitId = this.createUnitId(definition.kind);
-      this.units.set(unitId, {
+      const spawnedUnit: RuntimeUnit = {
         id: unitId,
         ownerId: building.ownerId,
         kind: definition.kind,
@@ -640,14 +674,24 @@ export class Simulation {
         cargo: null,
         waypoints: [],
         attackCooldownTicks: 0
-      });
+      };
+
+      this.units.set(unitId, spawnedUnit);
       building.trainingQueue.shift();
+
+      if (building.rallyPoint) {
+        spawnedUnit.activity = "moving";
+        if (!this.assignPath(spawnedUnit, building.rallyPoint)) {
+          spawnedUnit.activity = "idle";
+        }
+      }
     }
   }
 
   private processAi(): void {
     for (const ai of this.aiPlayers) {
       const interval = Math.max(1, ai.thinkIntervalTicks ?? this.tickRate);
+      const state = this.aiStates.get(ai.playerId);
 
       if (this.tick === 0 || this.tick % interval !== 0) {
         continue;
@@ -658,6 +702,9 @@ export class Simulation {
         .sort((a, b) => a.id.localeCompare(b.id));
 
       if (enemyUnits.length === 0) {
+        if (state) {
+          state.mode = "idle";
+        }
         continue;
       }
 
@@ -671,6 +718,17 @@ export class Simulation {
           return Boolean(definition && definition.attackDamage > 0);
         })
         .sort((a, b) => a.id.localeCompare(b.id));
+
+      if (attackers.length === 0) {
+        if (state) {
+          state.mode = "idle";
+        }
+        continue;
+      }
+
+      if (state) {
+        state.mode = "attacking";
+      }
 
       for (const attacker of attackers) {
         const definition = this.unitDefinitions.get(attacker.kind);
@@ -1589,7 +1647,8 @@ function cloneBuilding(building: BuildingState): BuildingState {
   return {
     ...building,
     position: { ...building.position },
-    trainingQueue: building.trainingQueue.map((item) => ({ ...item }))
+    trainingQueue: building.trainingQueue.map((item) => ({ ...item })),
+    rallyPoint: building.rallyPoint ? { ...building.rallyPoint } : null
   };
 }
 
@@ -1631,6 +1690,11 @@ function cloneCommand(command: GameCommand): GameCommand {
       };
     case "train":
       return { ...command };
+    case "set-rally-point":
+      return {
+        ...command,
+        target: { ...command.target }
+      };
     case "attack":
       return {
         ...command,
