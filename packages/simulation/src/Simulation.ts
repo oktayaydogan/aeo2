@@ -1382,7 +1382,11 @@ export class Simulation {
           continue;
         }
 
-        target.hitPoints -= this.attackDamageFor(unit, definition);
+        target.hitPoints -= this.attackDamageFor(
+          unit,
+          definition,
+          target.kind
+        );
         unit.attackCooldownTicks = Math.max(
           1,
           Math.round(definition.attackCooldownSeconds * this.tickRate)
@@ -2072,7 +2076,8 @@ export class Simulation {
   ): boolean {
     return (
       (buildingKind === "town-center" && unitKind === "villager") ||
-      (buildingKind === "barracks" && unitKind === "militia") ||
+      (buildingKind === "barracks" &&
+        (unitKind === "militia" || unitKind === "spearman")) ||
       (buildingKind === "archery-range" && unitKind === "archer")
     );
   }
@@ -2089,9 +2094,18 @@ export class Simulation {
 
   private attackDamageFor(
     unit: RuntimeUnit,
-    definition: UnitDefinition
+    definition: UnitDefinition,
+    targetKind?: UnitKind
   ): number {
     let damage = definition.attackDamage;
+
+    if (targetKind) {
+      damage +=
+        definition.bonuses?.find(
+          (bonus) => bonus.targetKind === targetKind
+        )?.damage ?? 0;
+    }
+
     const researched = this.researchedTechnologies.get(unit.ownerId);
 
     if (!researched) {
@@ -2428,7 +2442,8 @@ function cloneBuildingDefinition(
 function cloneUnitDefinition(definition: UnitDefinition): UnitDefinition {
   return {
     ...definition,
-    cost: { ...definition.cost }
+    cost: { ...definition.cost },
+    bonuses: definition.bonuses?.map((bonus) => ({ ...bonus }))
   };
 }
 
