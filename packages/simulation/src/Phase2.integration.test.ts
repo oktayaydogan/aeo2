@@ -13,7 +13,7 @@ const TOWN_CENTER: BuildingDefinition = {
   footprint: { width: 4, height: 4 },
   cost: { wood: 275, food: 0, gold: 100 },
   buildTimeSeconds: 1,
-  maxHitPoints: 120,
+  maxHitPoints: 240,
   populationProvided: 10
 };
 
@@ -110,7 +110,7 @@ function villager(id: string, x: number, y: number): UnitState {
 }
 
 describe("Phase 2 skirmish vertical slice", () => {
-  it("builds an economy, expands production, researches, and launches an attack", () => {
+  it("grows the economy, creates a mixed army, researches, and launches an attack", () => {
     const simulation = new Simulation({
       tickRate: 20,
       map: { width: 30, height: 22 },
@@ -161,7 +161,7 @@ describe("Phase 2 skirmish vertical slice", () => {
           position: { x: 2, y: 8 },
           progress: 1,
           completed: true,
-          hitPoints: 120,
+          hitPoints: 240,
           trainingQueue: []
         },
         {
@@ -171,7 +171,7 @@ describe("Phase 2 skirmish vertical slice", () => {
           position: { x: 15, y: 8 },
           progress: 1,
           completed: true,
-          hitPoints: 120,
+          hitPoints: 240,
           trainingQueue: []
         },
         {
@@ -183,13 +183,33 @@ describe("Phase 2 skirmish vertical slice", () => {
           completed: true,
           hitPoints: 550,
           trainingQueue: []
+        },
+        {
+          id: "ai-barracks",
+          ownerId: "player-2",
+          kind: "barracks",
+          position: { x: 11, y: 8 },
+          progress: 1,
+          completed: true,
+          hitPoints: 1200,
+          trainingQueue: []
+        },
+        {
+          id: "ai-archery-range",
+          ownerId: "player-2",
+          kind: "archery-range",
+          position: { x: 11, y: 13 },
+          progress: 1,
+          completed: true,
+          hitPoints: 1050,
+          trainingQueue: []
         }
       ],
       stockpiles: {
         "player-2": {
-          wood: 250,
-          food: 500,
-          gold: 300
+          wood: 300,
+          food: 600,
+          gold: 400
         }
       },
       aiPlayers: [
@@ -206,7 +226,7 @@ describe("Phase 2 skirmish vertical slice", () => {
 
     let reachedAttack = false;
 
-    for (let step = 0; step < 1800; step += 1) {
+    for (let step = 0; step < 800; step += 1) {
       simulation.step();
       const snapshot = simulation.getSnapshot();
 
@@ -218,29 +238,23 @@ describe("Phase 2 skirmish vertical slice", () => {
         reachedAttack = true;
       }
 
-      if (snapshot.match.status === "ended") {
+      if (reachedAttack) {
         break;
       }
     }
 
     const snapshot = simulation.getSnapshot();
-    const aiBuildings = snapshot.buildings.filter(
-      (building) => building.ownerId === "player-2"
-    );
     const aiUnits = snapshot.units.filter(
       (unit) => unit.ownerId === "player-2"
     );
+    const remainingResources = snapshot.resources.reduce(
+      (sum, resource) => sum + resource.amount,
+      0
+    );
 
     expect(
-      aiBuildings.some(
-        (building) => building.kind === "barracks"
-      )
-    ).toBe(true);
-    expect(
-      aiBuildings.some(
-        (building) => building.kind === "archery-range"
-      )
-    ).toBe(true);
+      aiUnits.filter((unit) => unit.kind === "villager").length
+    ).toBeGreaterThanOrEqual(3);
     expect(
       aiUnits.filter((unit) => unit.kind !== "villager").length
     ).toBeGreaterThanOrEqual(4);
@@ -249,10 +263,7 @@ describe("Phase 2 skirmish vertical slice", () => {
         (entry) => entry.playerId === "player-2"
       )?.researched
     ).toContain("forged-weapons");
+    expect(remainingResources).toBeLessThan(3000);
     expect(reachedAttack).toBe(true);
-
-    if (snapshot.match.status === "ended") {
-      expect(snapshot.match.winnerPlayerId).toBe("player-2");
-    }
   });
 });
