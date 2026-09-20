@@ -4,9 +4,9 @@ A browser-first real-time strategy game inspired by the systemic depth and inter
 
 > This project does not copy Age of Empires II assets, audio, trademarks, maps, or proprietary game data. The goal is an original RTS with a web-native engine and production architecture.
 
-## Current milestone: Phase 1 — playable single-player vertical slice
+## Current milestone: Phase 2 — skirmish depth
 
-Phase 1 turns the engine prototype into a complete small RTS match: economy, construction, production, combat, fog, UI, AI opposition, and a win/loss loop.
+Phase 2 expands the completed single-player vertical slice into a deeper skirmish: AI economy, more production choices, ranged combat, technologies, stronger map variety, and more durable replayability.
 
 **Phase 1 status: COMPLETE**
 
@@ -43,6 +43,25 @@ Phase 1 turns the engine prototype into a complete small RTS match: economy, con
 - [x] Game-side fog/HUD tests
 - [x] Vercel deployment gated by typecheck, simulation tests, game tests, and production build
 - [x] Final deployment verification for the Phase 1 implementation
+
+### Phase 2 completion criteria
+
+- [x] Archery Range building definition and construction path
+- [x] Archer ranged unit and production path
+- [x] Technology/research queue infrastructure
+- [x] Forged Weapons attack upgrade
+- [x] AI state machine distinguishes economy, military buildup, attack, and idle
+- [x] AI assigns idle villagers to resources
+- [x] AI trains villagers toward an economy target
+- [x] AI trains military toward an army target before attacking
+- [ ] AI constructs missing economy / production buildings
+- [ ] AI researches technologies when economically appropriate
+- [ ] Seeded procedural skirmish map generation
+- [ ] Multiple valid starting layouts with fair resource placement
+- [ ] At least one additional military counter relationship
+- [ ] Phase 2 full skirmish integration test
+- [ ] Representative-browser performance verification
+- [ ] Final Phase 2 deployment verification
 
 ## Architecture principles
 
