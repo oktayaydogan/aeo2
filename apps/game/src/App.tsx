@@ -17,10 +17,10 @@ export function App() {
       <header className="topbar">
         <div className="brand-row">
           <strong>AEO2</strong>
-          <span className="milestone">Playable match vertical slice</span>
+          <span className="milestone">Phase 2 · Skirmish depth</span>
         </div>
         <div className="controls">
-          WASD pan · wheel zoom · right-click context commands · minimap navigation
+          WASD pan · wheel zoom · H/B/X build · V/M/C train · F research · right-click context · minimap navigation
         </div>
       </header>
 
