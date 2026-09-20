@@ -463,7 +463,7 @@ export class WorldScene extends Phaser.Scene {
       .image(
         point.x,
         point.y - 7,
-        unit.kind === "militia" ? "unit-militia" : "unit-villager"
+        unitTextureKey(unit.kind)
       )
       .setOrigin(0.5, 0.82)
       .setDepth(point.y)
@@ -1392,7 +1392,7 @@ export class WorldScene extends Phaser.Scene {
       const definition = BUILDING_DEFINITIONS.find(
         (entry) => entry.kind === selectedBuilding.kind
       );
-      const queue =
+      const trainingQueue =
         selectedBuilding.trainingQueue.length > 0
           ? selectedBuilding.trainingQueue
               .map(
@@ -1403,6 +1403,14 @@ export class WorldScene extends Phaser.Scene {
               )
               .join("   ")
           : "Queue empty";
+      const researchItem = selectedBuilding.researchQueue?.[0];
+      const researchQueue = researchItem
+        ? `Research ${researchItem.technologyKind} ${Math.round(
+            researchItem.progress * 100
+          )}%`
+        : playerTechnologies.length > 0
+          ? `Tech ${playerTechnologies.join(", ")}`
+          : "No research";
 
       this.selectionTitleText?.setText(
         definition?.displayName ?? selectedBuilding.kind
@@ -1411,7 +1419,8 @@ export class WorldScene extends Phaser.Scene {
         `HP ${Math.ceil(selectedBuilding.hitPoints)}/${
           definition?.maxHitPoints ?? selectedBuilding.hitPoints
         }`,
-        queue,
+        trainingQueue,
+        researchQueue,
         selectedBuilding.rallyPoint
           ? `Rally ${selectedBuilding.rallyPoint.x.toFixed(
               1
@@ -1453,10 +1462,18 @@ export class WorldScene extends Phaser.Scene {
       ]);
     }
 
+    const playerTechnologies =
+      snapshot.technologies.find(
+        (entry) => entry.playerId === "player-1"
+      )?.researched ?? [];
+
     const availability = getHudCommandAvailability({
       selectedUnitKinds: selectedUnits.map((unit) => unit.kind),
       selectedBuildingKind: selectedBuilding?.kind,
       selectedBuildingCompleted: selectedBuilding?.completed,
+      selectedBuildingResearchBusy:
+        (selectedBuilding?.researchQueue?.length ?? 0) > 0,
+      researchedTechnologies: playerTechnologies,
       resources: {
         wood: stockpile?.resources.wood ?? 0,
         food: stockpile?.resources.food ?? 0,
@@ -1471,8 +1488,11 @@ export class WorldScene extends Phaser.Scene {
     const buttonLabels: Record<HudButton["command"], string> = {
       house: "HOUSE\n25 Wood   [H]",
       barracks: "BARRACKS\n75 Wood   [B]",
+      "archery-range": "ARCHERY RANGE\n100 Wood   [X]",
       villager: "VILLAGER\n50 Food   [V]",
-      militia: "MILITIA\n60 Food · 20 Gold   [M]"
+      militia: "MILITIA\n60 Food · 20 Gold   [M]",
+      archer: "ARCHER\n25 Wood · 45 Gold   [C]",
+      "forged-weapons": "FORGED WEAPONS\n75 Food · 75 Gold   [F]"
     };
 
     for (const button of this.hudButtons) {
@@ -1890,22 +1910,34 @@ function createEconomyUnits(): UnitState[] {
     }
   }
 
-  for (let index = 0; index < 6; index += 1) {
+  for (let index = 0; index < 2; index += 1) {
     units.push({
-      id: `enemy-${index + 1}`,
+      id: `enemy-villager-${index + 1}`,
       ownerId: "player-2",
-      kind: "militia",
+      kind: "villager",
       position: {
-        x: 12.0 + (index % 3) * 0.85,
-        y: 11.0 + Math.floor(index / 3) * 0.85
+        x: 13.2 + index * 0.7,
+        y: 6.6
       },
       destination: null,
-      speed: 2.5,
-      hitPoints: 40,
+      speed: 2.4,
+      hitPoints: 25,
       activity: "idle",
       cargo: null
     });
   }
+
+  units.push({
+    id: "enemy-militia-1",
+    ownerId: "player-2",
+    kind: "militia",
+    position: { x: 12.2, y: 9.5 },
+    destination: null,
+    speed: 2.5,
+    hitPoints: 40,
+    activity: "idle",
+    cargo: null
+  });
 
   return units;
 }
@@ -1959,6 +1991,10 @@ function createBenchmarkUnits(): UnitState[] {
 }
 
 function unitVisionRadius(unit: UnitState): number {
+  if (unit.kind === "archer") {
+    return 6;
+  }
+
   return unit.kind === "militia" ? 5.2 : 4.4;
 }
 
@@ -1967,7 +2003,26 @@ function buildingVisionRadius(building: BuildingState): number {
     return 6.4;
   }
 
-  return building.kind === "barracks" ? 4.6 : 3.6;
+  if (
+    building.kind === "barracks" ||
+    building.kind === "archery-range"
+  ) {
+    return 4.6;
+  }
+
+  return 3.6;
+}
+
+function unitTextureKey(kind: UnitKind): string {
+  if (kind === "militia") {
+    return "unit-militia";
+  }
+
+  if (kind === "archer") {
+    return "unit-archer";
+  }
+
+  return "unit-villager";
 }
 
 function resourceTextureKey(
