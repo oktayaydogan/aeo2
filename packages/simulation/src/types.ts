@@ -15,7 +15,7 @@ export interface GridMapDefinition {
 }
 
 export type ResourceKind = "wood" | "food" | "gold";
-export type UnitKind = "villager" | "militia" | "archer";
+export type UnitKind = "villager" | "militia" | "archer" | "spearman";
 export type UnitActivity =
   | "idle"
   | "moving"
@@ -81,6 +81,11 @@ export interface PlayerPopulationState {
   cap: number;
 }
 
+export interface UnitAttackBonus {
+  targetKind: UnitKind;
+  damage: number;
+}
+
 export interface UnitDefinition {
   kind: UnitKind;
   displayName: string;
@@ -92,6 +97,7 @@ export interface UnitDefinition {
   attackRange: number;
   attackCooldownSeconds: number;
   populationCost: number;
+  bonuses?: readonly UnitAttackBonus[];
 }
 
 export interface BuildingDefinition {
