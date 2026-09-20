@@ -73,6 +73,24 @@ export const UNIT_DEFINITIONS = [
     attackRange: 4.5,
     attackCooldownSeconds: 1.7,
     populationCost: 1
+  },
+  {
+    kind: "spearman",
+    displayName: "Spearman",
+    cost: { wood: 25, food: 45, gold: 0 },
+    trainTimeSeconds: 13,
+    maxHitPoints: 45,
+    speed: 2.35,
+    attackDamage: 3,
+    attackRange: 0.8,
+    attackCooldownSeconds: 1.3,
+    populationCost: 1,
+    bonuses: [
+      {
+        targetKind: "archer",
+        damage: 5
+      }
+    ]
   }
 ] as const;
 
