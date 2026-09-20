@@ -108,10 +108,7 @@ export class Simulation {
     this.tickDurationMs = 1000 / this.tickRate;
     this.aiPlayers = (options.aiPlayers ?? []).map((definition) => ({
       ...definition,
-      thinkIntervalTicks: definition.thinkIntervalTicks ?? this.tickRate,
-      targetVillagers: definition.targetVillagers ?? 5,
-      targetMilitary: definition.targetMilitary ?? 6,
-      attackThreshold: definition.attackThreshold ?? 4
+      thinkIntervalTicks: definition.thinkIntervalTicks ?? this.tickRate
     }));
     for (const ai of this.aiPlayers) {
       this.aiStates.set(ai.playerId, {
@@ -891,9 +888,13 @@ export class Simulation {
         )
         .sort((a, b) => a.id.localeCompare(b.id))[0];
 
-      const targetVillagers = ai.targetVillagers ?? 5;
-      const targetMilitary = ai.targetMilitary ?? 6;
-      const attackThreshold = ai.attackThreshold ?? 4;
+      const economyEnabled =
+        ai.targetVillagers !== undefined ||
+        ai.targetMilitary !== undefined ||
+        ai.attackThreshold !== undefined;
+      const targetVillagers = ai.targetVillagers ?? 0;
+      const targetMilitary = ai.targetMilitary ?? military.length;
+      const attackThreshold = ai.attackThreshold ?? 1;
 
       const queuedVillagers = [...this.buildings.values()]
         .filter((building) => building.ownerId === ai.playerId)
@@ -901,6 +902,7 @@ export class Simulation {
         .filter((item) => item.unitKind === "villager").length;
 
       if (
+        economyEnabled &&
         townCenter &&
         villagers.length + queuedVillagers < targetVillagers &&
         population.used + population.queued < population.cap
@@ -921,7 +923,8 @@ export class Simulation {
           unit.activity === "idle"
       );
 
-      idleVillagers.forEach((villager, index) => {
+      if (economyEnabled) {
+        idleVillagers.forEach((villager, index) => {
         const desiredKind = this.aiDesiredResourceKind(
           stockpile,
           index
@@ -935,20 +938,24 @@ export class Simulation {
           return;
         }
 
-        this.applyGatherCommand({
-          type: "gather",
-          playerId: ai.playerId,
-          unitIds: [villager.id],
-          resourceId: resource.id
+          this.applyGatherCommand({
+            type: "gather",
+            playerId: ai.playerId,
+            unitIds: [villager.id],
+            resourceId: resource.id
+          });
         });
-      });
+      }
 
       const queuedMilitary = [...this.buildings.values()]
         .filter((building) => building.ownerId === ai.playerId)
         .flatMap((building) => building.trainingQueue)
         .filter((item) => item.unitKind !== "villager").length;
 
-      if (military.length + queuedMilitary < targetMilitary) {
+      if (
+        economyEnabled &&
+        military.length + queuedMilitary < targetMilitary
+      ) {
         const productionBuildings = [...this.buildings.values()]
           .filter(
             (building) =>
@@ -992,7 +999,9 @@ export class Simulation {
       if (military.length < attackThreshold) {
         if (state) {
           state.mode =
-            villagers.length < targetVillagers ? "economy" : "military";
+            economyEnabled && villagers.length < targetVillagers
+              ? "economy"
+              : "military";
         }
         continue;
       }
