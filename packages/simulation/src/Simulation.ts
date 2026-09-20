@@ -867,6 +867,134 @@ export class Simulation {
         continue;
       }
 
+      const ownUnits = [...this.units.values()]
+        .filter((unit) => unit.ownerId === ai.playerId)
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const villagers = ownUnits.filter(
+        (unit) => unit.kind === "villager"
+      );
+      const military = ownUnits.filter((unit) => {
+        const definition = this.unitDefinitions.get(unit.kind);
+        return Boolean(definition && definition.attackDamage > 0);
+      });
+      const population = this.calculatePopulation(ai.playerId);
+      const stockpile = this.ensureStockpile(ai.playerId);
+
+      const townCenter = [...this.buildings.values()]
+        .filter(
+          (building) =>
+            building.ownerId === ai.playerId &&
+            building.completed &&
+            building.kind === "town-center"
+        )
+        .sort((a, b) => a.id.localeCompare(b.id))[0];
+
+      const targetVillagers = ai.targetVillagers ?? 5;
+      const targetMilitary = ai.targetMilitary ?? 6;
+      const attackThreshold = ai.attackThreshold ?? 4;
+
+      const queuedVillagers = [...this.buildings.values()]
+        .filter((building) => building.ownerId === ai.playerId)
+        .flatMap((building) => building.trainingQueue)
+        .filter((item) => item.unitKind === "villager").length;
+
+      if (
+        townCenter &&
+        villagers.length + queuedVillagers < targetVillagers &&
+        population.used + population.queued < population.cap
+      ) {
+        this.applyTrainCommand({
+          type: "train",
+          playerId: ai.playerId,
+          buildingId: townCenter.id,
+          unitKind: "villager"
+        });
+      }
+
+      const idleVillagers = villagers.filter(
+        (unit) =>
+          !unit.gatherTask &&
+          !unit.buildTask &&
+          !unit.attackTask &&
+          unit.activity === "idle"
+      );
+
+      idleVillagers.forEach((villager, index) => {
+        const desiredKind = this.aiDesiredResourceKind(
+          stockpile,
+          index
+        );
+        const resource = this.findNearestResourceForAi(
+          villager.position,
+          desiredKind
+        );
+
+        if (!resource) {
+          return;
+        }
+
+        this.applyGatherCommand({
+          type: "gather",
+          playerId: ai.playerId,
+          unitIds: [villager.id],
+          resourceId: resource.id
+        });
+      });
+
+      const queuedMilitary = [...this.buildings.values()]
+        .filter((building) => building.ownerId === ai.playerId)
+        .flatMap((building) => building.trainingQueue)
+        .filter((item) => item.unitKind !== "villager").length;
+
+      if (military.length + queuedMilitary < targetMilitary) {
+        const productionBuildings = [...this.buildings.values()]
+          .filter(
+            (building) =>
+              building.ownerId === ai.playerId &&
+              building.completed &&
+              building.trainingQueue.length < MAX_TRAINING_QUEUE
+          )
+          .sort((a, b) => a.id.localeCompare(b.id));
+
+        const archeryRange = productionBuildings.find(
+          (building) => building.kind === "archery-range"
+        );
+        const barracks = productionBuildings.find(
+          (building) => building.kind === "barracks"
+        );
+
+        if (archeryRange && military.length % 2 === 1) {
+          this.applyTrainCommand({
+            type: "train",
+            playerId: ai.playerId,
+            buildingId: archeryRange.id,
+            unitKind: "archer"
+          });
+        } else if (barracks) {
+          this.applyTrainCommand({
+            type: "train",
+            playerId: ai.playerId,
+            buildingId: barracks.id,
+            unitKind: "militia"
+          });
+        } else if (archeryRange) {
+          this.applyTrainCommand({
+            type: "train",
+            playerId: ai.playerId,
+            buildingId: archeryRange.id,
+            unitKind: "archer"
+          });
+        }
+      }
+
+      if (military.length < attackThreshold) {
+        if (state) {
+          state.mode =
+            villagers.length < targetVillagers ? "economy" : "military";
+        }
+        continue;
+      }
+
       const enemyUnits = [...this.units.values()]
         .filter((unit) => unit.ownerId === ai.enemyPlayerId)
         .sort((a, b) => a.id.localeCompare(b.id));
@@ -893,29 +1021,15 @@ export class Simulation {
         continue;
       }
 
-      const attackers = [...this.units.values()]
-        .filter((unit) => {
-          if (unit.ownerId !== ai.playerId || unit.attackTask) {
-            return false;
-          }
-
-          const definition = this.unitDefinitions.get(unit.kind);
-          return Boolean(definition && definition.attackDamage > 0);
-        })
-        .sort((a, b) => a.id.localeCompare(b.id));
-
-      if (attackers.length === 0) {
-        if (state) {
-          state.mode = "idle";
-        }
-        continue;
-      }
-
       if (state) {
         state.mode = "attacking";
       }
 
-      for (const attacker of attackers) {
+      for (const attacker of military) {
+        if (attacker.attackTask) {
+          continue;
+        }
+
         const definition = this.unitDefinitions.get(attacker.kind);
 
         if (!definition) {
@@ -963,6 +1077,43 @@ export class Simulation {
         );
       }
     }
+  }
+
+  private aiDesiredResourceKind(
+    stockpile: ResourceStockpile,
+    villagerIndex: number
+  ): ResourceKind {
+    if (stockpile.food < 120) {
+      return villagerIndex % 3 === 0 ? "wood" : "food";
+    }
+
+    if (stockpile.wood < 120) {
+      return villagerIndex % 3 === 0 ? "food" : "wood";
+    }
+
+    if (stockpile.gold < 90) {
+      return villagerIndex % 2 === 0 ? "gold" : "food";
+    }
+
+    return (["food", "wood", "gold"] as const)[villagerIndex % 3] ?? "food";
+  }
+
+  private findNearestResourceForAi(
+    position: Vector2,
+    kind: ResourceKind
+  ): ResourceNodeState | undefined {
+    return [...this.resources.values()]
+      .filter(
+        (resource) =>
+          resource.kind === kind &&
+          resource.amount > ARRIVAL_EPSILON
+      )
+      .sort(
+        (a, b) =>
+          distance(position, a.position) -
+            distance(position, b.position) ||
+          a.id.localeCompare(b.id)
+      )[0];
   }
 
   private processCombat(): void {
@@ -1026,7 +1177,7 @@ export class Simulation {
           continue;
         }
 
-        target.hitPoints -= definition.attackDamage;
+        target.hitPoints -= this.attackDamageFor(unit, definition);
         unit.attackCooldownTicks = Math.max(
           1,
           Math.round(definition.attackCooldownSeconds * this.tickRate)
@@ -1086,7 +1237,7 @@ export class Simulation {
         continue;
       }
 
-      building.hitPoints -= definition.attackDamage;
+      building.hitPoints -= this.attackDamageFor(unit, definition);
       unit.attackCooldownTicks = Math.max(
         1,
         Math.round(definition.attackCooldownSeconds * this.tickRate)
