@@ -15,7 +15,7 @@ export interface GridMapDefinition {
 }
 
 export type ResourceKind = "wood" | "food" | "gold";
-export type UnitKind = "villager" | "militia";
+export type UnitKind = "villager" | "militia" | "archer";
 export type UnitActivity =
   | "idle"
   | "moving"
@@ -24,7 +24,13 @@ export type UnitActivity =
   | "building"
   | "attacking";
 
-export type BuildingKind = "town-center" | "house" | "barracks";
+export type BuildingKind =
+  | "town-center"
+  | "house"
+  | "barracks"
+  | "archery-range";
+
+export type TechnologyKind = "forged-weapons";
 
 export interface CargoState {
   kind: ResourceKind;
@@ -106,6 +112,20 @@ export interface TrainingQueueItemState {
   progress: number;
 }
 
+export interface TechnologyDefinition {
+  kind: TechnologyKind;
+  displayName: string;
+  cost: ResourceStockpile;
+  researchTimeSeconds: number;
+  buildingKind: BuildingKind;
+  attackDamageBonus: number;
+}
+
+export interface ResearchQueueItemState {
+  technologyKind: TechnologyKind;
+  progress: number;
+}
+
 export interface BuildingState {
   id: string;
   ownerId: string;
@@ -115,14 +135,25 @@ export interface BuildingState {
   completed: boolean;
   hitPoints: number;
   trainingQueue: TrainingQueueItemState[];
+  researchQueue?: ResearchQueueItemState[];
   rallyPoint?: Vector2 | null;
 }
 
-export type AiMode = "waiting" | "attacking" | "idle";
+export type AiMode =
+  | "waiting"
+  | "economy"
+  | "military"
+  | "attacking"
+  | "idle";
 
 export interface AiPlayerState {
   playerId: string;
   mode: AiMode;
+}
+
+export interface PlayerTechnologyState {
+  playerId: string;
+  researched: readonly TechnologyKind[];
 }
 
 export interface SimulationSnapshot {
@@ -132,6 +163,7 @@ export interface SimulationSnapshot {
   stockpiles: readonly PlayerStockpileState[];
   population: readonly PlayerPopulationState[];
   aiPlayers: readonly AiPlayerState[];
+  technologies: readonly PlayerTechnologyState[];
   match: MatchState;
   buildings: readonly BuildingState[];
 }
@@ -163,6 +195,13 @@ export interface TrainCommand {
   playerId: string;
   buildingId: string;
   unitKind: UnitKind;
+}
+
+export interface ResearchCommand {
+  type: "research";
+  playerId: string;
+  buildingId: string;
+  technologyKind: TechnologyKind;
 }
 
 export interface SetRallyPointCommand {
@@ -200,6 +239,7 @@ export type GameCommand =
   | GatherCommand
   | BuildCommand
   | TrainCommand
+  | ResearchCommand
   | SetRallyPointCommand
   | AttackCommand
   | AttackBuildingCommand;
@@ -208,6 +248,9 @@ export interface AiPlayerDefinition {
   playerId: string;
   enemyPlayerId: string;
   thinkIntervalTicks?: number;
+  targetVillagers?: number;
+  targetMilitary?: number;
+  attackThreshold?: number;
 }
 
 export interface SimulationOptions {
@@ -218,6 +261,7 @@ export interface SimulationOptions {
   dropOffPoints?: readonly DropOffPointState[];
   buildingDefinitions?: readonly BuildingDefinition[];
   unitDefinitions?: readonly UnitDefinition[];
+  technologyDefinitions?: readonly TechnologyDefinition[];
   buildings?: readonly BuildingState[];
   aiPlayers?: readonly AiPlayerDefinition[];
   stockpiles?: Readonly<
