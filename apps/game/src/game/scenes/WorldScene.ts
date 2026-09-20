@@ -1,5 +1,9 @@
 import Phaser from "phaser";
-import { BUILDING_DEFINITIONS, UNIT_DEFINITIONS } from "@aeo2/content";
+import {
+  BUILDING_DEFINITIONS,
+  TECHNOLOGY_DEFINITIONS,
+  UNIT_DEFINITIONS
+} from "@aeo2/content";
 import {
   DEFAULT_TICK_RATE,
   Simulation,
@@ -7,6 +11,7 @@ import {
   type BuildingState,
   type ResourceNodeState,
   type SimulationSnapshot,
+  type TechnologyKind,
   type UnitKind,
   type UnitState
 } from "@aeo2/simulation";
@@ -61,7 +66,14 @@ interface DragSelectionState {
 interface HudButton {
   background: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
-  command: "house" | "barracks" | "villager" | "militia";
+  command:
+    | "house"
+    | "barracks"
+    | "archery-range"
+    | "villager"
+    | "militia"
+    | "archer"
+    | "forged-weapons";
 }
 
 export class WorldScene extends Phaser.Scene {
@@ -72,6 +84,7 @@ export class WorldScene extends Phaser.Scene {
     resources: RESOURCE_NODES,
     buildingDefinitions: BUILDING_DEFINITIONS,
     unitDefinitions: UNIT_DEFINITIONS,
+    technologyDefinitions: TECHNOLOGY_DEFINITIONS,
     buildings: [
       {
         id: "town-center-1",
@@ -102,6 +115,26 @@ export class WorldScene extends Phaser.Scene {
         completed: true,
         hitPoints: 550,
         trainingQueue: []
+      },
+      {
+        id: "enemy-barracks",
+        ownerId: "player-2",
+        kind: "barracks",
+        position: { x: 10, y: 2 },
+        progress: 1,
+        completed: true,
+        hitPoints: 1200,
+        trainingQueue: []
+      },
+      {
+        id: "enemy-archery-range",
+        ownerId: "player-2",
+        kind: "archery-range",
+        position: { x: 10, y: 6 },
+        progress: 1,
+        completed: true,
+        hitPoints: 1050,
+        trainingQueue: []
       }
     ],
     dropOffPoints: [
@@ -109,6 +142,11 @@ export class WorldScene extends Phaser.Scene {
         id: "town-center-dropoff",
         ownerId: "player-1",
         position: { x: 1.5, y: 10 }
+      },
+      {
+        id: "enemy-town-center-dropoff",
+        ownerId: "player-2",
+        position: { x: 13.5, y: 4 }
       }
     ],
     aiPlayers: BENCHMARK_MODE
@@ -117,7 +155,10 @@ export class WorldScene extends Phaser.Scene {
           {
             playerId: "player-2",
             enemyPlayerId: "player-1",
-            thinkIntervalTicks: 400
+            thinkIntervalTicks: 40,
+            targetVillagers: 4,
+            targetMilitary: 7,
+            attackThreshold: 5
           }
         ],
     stockpiles: {
@@ -125,6 +166,11 @@ export class WorldScene extends Phaser.Scene {
         wood: 100,
         food: 0,
         gold: 0
+      },
+      "player-2": {
+        wood: 25,
+        food: 100,
+        gold: 45
       }
     }
   });
