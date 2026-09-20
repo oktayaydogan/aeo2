@@ -21,6 +21,11 @@ import {
   type IsometricProjection,
   type Point2
 } from "../isometric";
+import {
+  DEFAULT_BENCHMARK_BUDGET,
+  summarizeBenchmark,
+  type BenchmarkResult
+} from "../benchmark";
 import { PROTOTYPE_MAP } from "../prototypeMap";
 import { createSkirmishSetup } from "../skirmishMap";
 import { getHudCommandAvailability } from "../hudState";
@@ -36,6 +41,12 @@ const MINIMAP_MARGIN = 14;
 const BENCHMARK_MODE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("benchmark") === "1";
+const BENCHMARK_AUTORUN =
+  BENCHMARK_MODE &&
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("autorun") === "1";
+const BENCHMARK_DURATION_MS = 10_000;
+const BENCHMARK_ORDER_INTERVAL_MS = 1_000;
 
 const DEFAULT_SKIRMISH_SEED = 20260920;
 const SKIRMISH_SEED = readSkirmishSeed();
@@ -221,6 +232,12 @@ export class WorldScene extends Phaser.Scene {
   private fogElapsedMs = 0;
   private metricsElapsedMs = 0;
   private simulationCostMs = 0;
+  private benchmarkElapsedMs = 0;
+  private benchmarkOrderElapsedMs = 0;
+  private benchmarkOrderPhase = 0;
+  private readonly benchmarkFpsSamples: number[] = [];
+  private readonly benchmarkSimulationSamples: number[] = [];
+  private benchmarkResult?: BenchmarkResult;
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private unitSelectionGraphics?: Phaser.GameObjects.Graphics;
@@ -382,10 +399,16 @@ export class WorldScene extends Phaser.Scene {
       const stepStartedAt = performance.now();
       this.simulation.step();
       this.simulationCostMs = performance.now() - stepStartedAt;
+
+      if (BENCHMARK_AUTORUN && !this.benchmarkResult) {
+        this.benchmarkSimulationSamples.push(this.simulationCostMs);
+      }
+
       this.accumulatorMs -= this.simulation.tickDurationMs;
     }
 
     const snapshot = this.simulation.getSnapshot();
+    this.updateBenchmark(delta, snapshot);
     this.updateVisibility(delta, snapshot);
     this.renderSnapshot(snapshot);
     this.renderMinimap(snapshot);
@@ -1356,6 +1379,70 @@ export class WorldScene extends Phaser.Scene {
     );
   }
 
+  private updateBenchmark(
+    delta: number,
+    snapshot: SimulationSnapshot
+  ): void {
+    if (!BENCHMARK_AUTORUN || this.benchmarkResult) {
+      return;
+    }
+
+    this.benchmarkElapsedMs += delta;
+    this.benchmarkOrderElapsedMs += delta;
+
+    const fps = this.game.loop.actualFps;
+    if (Number.isFinite(fps) && fps > 0) {
+      this.benchmarkFpsSamples.push(fps);
+    }
+
+    if (this.benchmarkOrderElapsedMs >= BENCHMARK_ORDER_INTERVAL_MS) {
+      this.benchmarkOrderElapsedMs %= BENCHMARK_ORDER_INTERVAL_MS;
+
+      const playerUnits = snapshot.units
+        .filter((unit) => unit.ownerId === "player-1")
+        .map((unit) => unit.id);
+      const enemyUnits = snapshot.units
+        .filter((unit) => unit.ownerId === "player-2")
+        .map((unit) => unit.id);
+      const phase = this.benchmarkOrderPhase % 2;
+
+      this.simulation.queueCommand({
+        type: "move",
+        playerId: "player-1",
+        unitIds: playerUnits,
+        target: phase === 0
+          ? { x: 15.5, y: 15.5 }
+          : { x: 4.5, y: 4.5 }
+      });
+      this.simulation.queueCommand({
+        type: "move",
+        playerId: "player-2",
+        unitIds: enemyUnits,
+        target: phase === 0
+          ? { x: 4.5, y: 4.5 }
+          : { x: 15.5, y: 15.5 }
+      });
+      this.benchmarkOrderPhase += 1;
+    }
+
+    if (this.benchmarkElapsedMs < BENCHMARK_DURATION_MS) {
+      return;
+    }
+
+    this.benchmarkResult = summarizeBenchmark(
+      this.benchmarkFpsSamples,
+      this.benchmarkSimulationSamples
+    );
+
+    if (typeof window !== "undefined") {
+      (
+        window as Window & {
+          __AEO2_BENCHMARK__?: BenchmarkResult;
+        }
+      ).__AEO2_BENCHMARK__ = { ...this.benchmarkResult };
+    }
+  }
+
   private updateMetrics(
     delta: number,
     snapshot: SimulationSnapshot
@@ -1371,6 +1458,25 @@ export class WorldScene extends Phaser.Scene {
     }
 
     this.metricsElapsedMs = 0;
+    const benchmarkLines =
+      BENCHMARK_AUTORUN
+        ? this.benchmarkResult
+          ? [
+              `benchmark: ${this.benchmarkResult.passed ? "PASS" : "FAIL"}`,
+              `avg fps: ${this.benchmarkResult.averageFps.toFixed(1)} / >= ${DEFAULT_BENCHMARK_BUDGET.minimumAverageFps}`,
+              `sim p95: ${this.benchmarkResult.p95SimulationMs.toFixed(2)} ms / <= ${DEFAULT_BENCHMARK_BUDGET.maximumP95SimulationMs} ms`,
+              `samples: ${this.benchmarkResult.sampleCount}`
+            ]
+          : [
+              `benchmark: running ${Math.min(
+                100,
+                Math.round(
+                  (this.benchmarkElapsedMs / BENCHMARK_DURATION_MS) * 100
+                )
+              )}%`
+            ]
+        : [];
+
     this.metricsText.setText([
       BENCHMARK_MODE ? "mode: benchmark" : "mode: economy",
       `entities: ${snapshot.units.length}`,
@@ -1378,6 +1484,7 @@ export class WorldScene extends Phaser.Scene {
       `fps: ${Math.round(this.game.loop.actualFps)}`,
       `sim tick: ${this.simulationCostMs.toFixed(2)} ms`,
       `tick: ${snapshot.tick}`,
+      ...benchmarkLines,
       BENCHMARK_MODE
         ? "fog: disabled"
         : `vision: ${this.fog.visibleCellCount()} · explored: ${this.fog.exploredCellCount()}/${MAP_SIZE * MAP_SIZE}`
