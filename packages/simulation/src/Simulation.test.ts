@@ -1189,3 +1189,120 @@ describe("Phase 2 skirmish AI construction and research", () => {
     ).toContain("forged-weapons");
   });
 });
+
+
+describe("Phase 2 military counters", () => {
+  const ARCHER = {
+    kind: "archer" as const,
+    displayName: "Archer",
+    cost: { wood: 25, food: 0, gold: 45 },
+    trainTimeSeconds: 14,
+    maxHitPoints: 30,
+    speed: 2.45,
+    attackDamage: 4,
+    attackRange: 4.5,
+    attackCooldownSeconds: 1.7,
+    populationCost: 1
+  };
+
+  const SPEARMAN = {
+    kind: "spearman" as const,
+    displayName: "Spearman",
+    cost: { wood: 25, food: 45, gold: 0 },
+    trainTimeSeconds: 13,
+    maxHitPoints: 45,
+    speed: 2.35,
+    attackDamage: 3,
+    attackRange: 0.8,
+    attackCooldownSeconds: 1.3,
+    populationCost: 1,
+    bonuses: [
+      {
+        targetKind: "archer" as const,
+        damage: 5
+      }
+    ]
+  };
+
+  it("applies Spearman bonus damage against Archers", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      unitDefinitions: [SPEARMAN, ARCHER],
+      units: [
+        {
+          id: "spearman-1",
+          ownerId: "player-1",
+          kind: "spearman",
+          position: { x: 2, y: 2 },
+          destination: null,
+          speed: 2.35,
+          hitPoints: 45,
+          activity: "idle",
+          cargo: null
+        },
+        {
+          id: "archer-1",
+          ownerId: "player-2",
+          kind: "archer",
+          position: { x: 2.5, y: 2 },
+          destination: null,
+          speed: 2.45,
+          hitPoints: 30,
+          activity: "idle",
+          cargo: null
+        }
+      ]
+    });
+
+    simulation.queueCommand({
+      type: "attack",
+      playerId: "player-1",
+      unitIds: ["spearman-1"],
+      targetUnitId: "archer-1"
+    });
+    simulation.step();
+
+    expect(
+      simulation.getSnapshot().units.find(
+        (unit) => unit.id === "archer-1"
+      )?.hitPoints
+    ).toBe(22);
+  });
+
+  it("does not apply the Archer counter bonus against other unit kinds", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      unitDefinitions: [SPEARMAN, MILITIA],
+      units: [
+        {
+          id: "spearman-1",
+          ownerId: "player-1",
+          kind: "spearman",
+          position: { x: 2, y: 2 },
+          destination: null,
+          speed: 2.35,
+          hitPoints: 45,
+          activity: "idle",
+          cargo: null
+        },
+        militia("militia-target", "player-2", { x: 2.5, y: 2 })
+      ]
+    });
+
+    simulation.queueCommand({
+      type: "attack",
+      playerId: "player-1",
+      unitIds: ["spearman-1"],
+      targetUnitId: "militia-target"
+    });
+    simulation.step();
+
+    expect(
+      simulation.getSnapshot().units.find(
+        (unit) => unit.id === "militia-target"
+      )?.hitPoints
+    ).toBe(37);
+  });
+});
