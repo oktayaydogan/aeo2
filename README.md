@@ -54,8 +54,8 @@ Phase 2 expands the completed single-player vertical slice into a deeper skirmis
 - [x] AI assigns idle villagers to resources
 - [x] AI trains villagers toward an economy target
 - [x] AI trains military toward an army target before attacking
-- [ ] AI constructs missing economy / production buildings
-- [ ] AI researches technologies when economically appropriate
+- [x] AI constructs missing economy / production buildings
+- [x] AI researches technologies when economically appropriate
 - [ ] Seeded procedural skirmish map generation
 - [ ] Multiple valid starting layouts with fair resource placement
 - [ ] At least one additional military counter relationship
