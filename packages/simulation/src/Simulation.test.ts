@@ -1058,7 +1058,7 @@ describe("Phase 2 skirmish AI economy", () => {
       ]
     });
 
-    simulation.step();
+    runSteps(simulation, 2);
 
     const barracks = simulation.getSnapshot().buildings.find(
       (building) => building.id === "ai-barracks"
