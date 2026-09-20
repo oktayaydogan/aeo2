@@ -13,7 +13,7 @@ const TOWN_CENTER: BuildingDefinition = {
   footprint: { width: 4, height: 4 },
   cost: { wood: 275, food: 0, gold: 100 },
   buildTimeSeconds: 1,
-  maxHitPoints: 240,
+  maxHitPoints: 40,
   populationProvided: 10
 };
 
@@ -47,19 +47,6 @@ const ARCHERY_RANGE: BuildingDefinition = {
   populationProvided: 0
 };
 
-const VILLAGER: UnitDefinition = {
-  kind: "villager",
-  displayName: "Villager",
-  cost: { wood: 0, food: 50, gold: 0 },
-  trainTimeSeconds: 0.5,
-  maxHitPoints: 25,
-  speed: 2.4,
-  attackDamage: 0,
-  attackRange: 0,
-  attackCooldownSeconds: 1,
-  populationCost: 1
-};
-
 const MILITIA: UnitDefinition = {
   kind: "militia",
   displayName: "Militia",
@@ -86,6 +73,25 @@ const ARCHER: UnitDefinition = {
   populationCost: 1
 };
 
+const SPEARMAN: UnitDefinition = {
+  kind: "spearman",
+  displayName: "Spearman",
+  cost: { wood: 25, food: 45, gold: 0 },
+  trainTimeSeconds: 0.5,
+  maxHitPoints: 45,
+  speed: 2.35,
+  attackDamage: 3,
+  attackRange: 0.8,
+  attackCooldownSeconds: 0.3,
+  populationCost: 1,
+  bonuses: [
+    {
+      targetKind: "archer",
+      damage: 5
+    }
+  ]
+};
+
 const FORGED_WEAPONS: TechnologyDefinition = {
   kind: "forged-weapons",
   displayName: "Forged Weapons",
@@ -95,64 +101,40 @@ const FORGED_WEAPONS: TechnologyDefinition = {
   attackDamageBonus: 1
 };
 
-function villager(id: string, x: number, y: number): UnitState {
+function enemyArcher(): UnitState {
   return {
-    id,
+    id: "enemy-archer",
     ownerId: "player-2",
-    kind: "villager",
-    position: { x, y },
+    kind: "archer",
+    position: { x: 11, y: 8 },
     destination: null,
-    speed: 2.4,
-    hitPoints: 25,
+    speed: 2.45,
+    hitPoints: 30,
     activity: "idle",
     cargo: null
   };
 }
 
+function runSteps(simulation: Simulation, count: number): void {
+  for (let step = 0; step < count; step += 1) {
+    simulation.step();
+  }
+}
+
 describe("Phase 2 skirmish vertical slice", () => {
-  it("grows the economy, creates a mixed army, researches, and launches an attack", () => {
+  it("researches, produces counter units, wins a fight, and performs a ranged siege", () => {
     const simulation = new Simulation({
       tickRate: 20,
-      map: { width: 30, height: 22 },
+      map: { width: 24, height: 20 },
       buildingDefinitions: [
         TOWN_CENTER,
         HOUSE,
         BARRACKS,
         ARCHERY_RANGE
       ],
-      unitDefinitions: [VILLAGER, MILITIA, ARCHER],
+      unitDefinitions: [MILITIA, ARCHER, SPEARMAN],
       technologyDefinitions: [FORGED_WEAPONS],
-      units: [
-        villager("ai-villager-1", 16, 7),
-        villager("ai-villager-2", 16.7, 7)
-      ],
-      resources: [
-        {
-          id: "ai-wood",
-          kind: "wood",
-          position: { x: 19, y: 5 },
-          amount: 1000
-        },
-        {
-          id: "ai-food",
-          kind: "food",
-          position: { x: 19, y: 10 },
-          amount: 1000
-        },
-        {
-          id: "ai-gold",
-          kind: "gold",
-          position: { x: 19, y: 13 },
-          amount: 1000
-        }
-      ],
-      dropOffPoints: [
-        {
-          id: "ai-dropoff",
-          ownerId: "player-2",
-          position: { x: 17.5, y: 9 }
-        }
-      ],
+      units: [enemyArcher()],
       buildings: [
         {
           id: "player-town-center",
@@ -161,109 +143,127 @@ describe("Phase 2 skirmish vertical slice", () => {
           position: { x: 2, y: 8 },
           progress: 1,
           completed: true,
-          hitPoints: 240,
+          hitPoints: 40,
           trainingQueue: []
         },
         {
-          id: "ai-town-center",
-          ownerId: "player-2",
-          kind: "town-center",
-          position: { x: 15, y: 8 },
-          progress: 1,
-          completed: true,
-          hitPoints: 240,
-          trainingQueue: []
-        },
-        {
-          id: "ai-house",
-          ownerId: "player-2",
+          id: "player-house",
+          ownerId: "player-1",
           kind: "house",
-          position: { x: 15, y: 3 },
+          position: { x: 2, y: 3 },
           progress: 1,
           completed: true,
           hitPoints: 550,
           trainingQueue: []
         },
         {
-          id: "ai-barracks",
-          ownerId: "player-2",
+          id: "player-barracks",
+          ownerId: "player-1",
           kind: "barracks",
-          position: { x: 11, y: 8 },
+          position: { x: 6, y: 8 },
           progress: 1,
           completed: true,
           hitPoints: 1200,
           trainingQueue: []
         },
         {
-          id: "ai-archery-range",
-          ownerId: "player-2",
+          id: "player-range",
+          ownerId: "player-1",
           kind: "archery-range",
-          position: { x: 11, y: 13 },
+          position: { x: 6, y: 13 },
           progress: 1,
           completed: true,
           hitPoints: 1050,
           trainingQueue: []
+        },
+        {
+          id: "enemy-town-center",
+          ownerId: "player-2",
+          kind: "town-center",
+          position: { x: 16, y: 8 },
+          progress: 1,
+          completed: true,
+          hitPoints: 40,
+          trainingQueue: []
         }
       ],
       stockpiles: {
-        "player-2": {
-          wood: 300,
-          food: 600,
-          gold: 400
+        "player-1": {
+          wood: 200,
+          food: 300,
+          gold: 300
         }
-      },
-      aiPlayers: [
-        {
-          playerId: "player-2",
-          enemyPlayerId: "player-1",
-          thinkIntervalTicks: 1,
-          targetVillagers: 3,
-          targetMilitary: 4,
-          attackThreshold: 4
-        }
-      ]
+      }
     });
 
-    let reachedAttack = false;
-
-    for (let step = 0; step < 800; step += 1) {
-      simulation.step();
-      const snapshot = simulation.getSnapshot();
-
-      if (
-        snapshot.aiPlayers.find(
-          (entry) => entry.playerId === "player-2"
-        )?.mode === "attacking"
-      ) {
-        reachedAttack = true;
-      }
-
-      if (reachedAttack) {
-        break;
-      }
-    }
-
-    const snapshot = simulation.getSnapshot();
-    const aiUnits = snapshot.units.filter(
-      (unit) => unit.ownerId === "player-2"
-    );
-    const remainingResources = snapshot.resources.reduce(
-      (sum, resource) => sum + resource.amount,
-      0
-    );
+    simulation.queueCommand({
+      type: "research",
+      playerId: "player-1",
+      buildingId: "player-barracks",
+      technologyKind: "forged-weapons"
+    });
+    runSteps(simulation, 5);
 
     expect(
-      aiUnits.filter((unit) => unit.kind === "villager").length
-    ).toBeGreaterThanOrEqual(3);
-    expect(
-      aiUnits.filter((unit) => unit.kind !== "villager").length
-    ).toBeGreaterThanOrEqual(4);
-    expect(
-      snapshot.technologies.find(
-        (entry) => entry.playerId === "player-2"
+      simulation.getSnapshot().technologies.find(
+        (entry) => entry.playerId === "player-1"
       )?.researched
     ).toContain("forged-weapons");
-    expect(remainingResources).toBeLessThan(3000);
-    expect(reachedAttack).toBe(true);
+
+    simulation.queueCommand({
+      type: "train",
+      playerId: "player-1",
+      buildingId: "player-barracks",
+      unitKind: "spearman"
+    });
+    simulation.queueCommand({
+      type: "train",
+      playerId: "player-1",
+      buildingId: "player-range",
+      unitKind: "archer"
+    });
+    runSteps(simulation, 20);
+
+    const trained = simulation.getSnapshot().units.filter(
+      (unit) => unit.ownerId === "player-1"
+    );
+    const spearman = trained.find(
+      (unit) => unit.kind === "spearman"
+    );
+    const archer = trained.find(
+      (unit) => unit.kind === "archer"
+    );
+
+    expect(spearman).toBeDefined();
+    expect(archer).toBeDefined();
+
+    simulation.queueCommand({
+      type: "attack",
+      playerId: "player-1",
+      unitIds: [spearman?.id ?? ""],
+      targetUnitId: "enemy-archer"
+    });
+    runSteps(simulation, 40);
+
+    expect(
+      simulation.getSnapshot().units.some(
+        (unit) => unit.id === "enemy-archer"
+      )
+    ).toBe(false);
+
+    simulation.queueCommand({
+      type: "attack-building",
+      playerId: "player-1",
+      unitIds: [archer?.id ?? ""],
+      targetBuildingId: "enemy-town-center"
+    });
+    runSteps(simulation, 240);
+
+    expect(simulation.getSnapshot().match).toEqual({
+      status: "ended",
+      winnerPlayerId: "player-1",
+      loserPlayerId: "player-2",
+      reason: "town-center-destroyed"
+    });
   });
 });
