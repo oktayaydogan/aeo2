@@ -122,3 +122,21 @@ describe("Phase 2 HUD commands", () => {
     expect(researched["forged-weapons"]).toBe(false);
   });
 });
+
+
+describe("Phase 2 Spearman HUD command", () => {
+  it("enables Spearman production from a Barracks with wood, food, and population space", () => {
+    const state = getHudCommandAvailability({
+      selectedUnitKinds: [],
+      selectedBuildingKind: "barracks",
+      selectedBuildingCompleted: true,
+      resources: { wood: 25, food: 45, gold: 0 },
+      populationUsed: 5,
+      populationQueued: 0,
+      populationCap: 10,
+      matchEnded: false
+    });
+
+    expect(state.spearman).toBe(true);
+  });
+});
