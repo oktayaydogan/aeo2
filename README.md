@@ -56,9 +56,9 @@ Phase 2 expands the completed single-player vertical slice into a deeper skirmis
 - [x] AI trains military toward an army target before attacking
 - [x] AI constructs missing economy / production buildings
 - [x] AI researches technologies when economically appropriate
-- [ ] Seeded procedural skirmish map generation
-- [ ] Multiple valid starting layouts with fair resource placement
-- [ ] At least one additional military counter relationship
+- [x] Seeded procedural skirmish map generation
+- [x] Multiple valid starting layouts with fair resource placement
+- [x] At least one additional military counter relationship
 - [ ] Phase 2 full skirmish integration test
 - [ ] Representative-browser performance verification
 - [ ] Final Phase 2 deployment verification
