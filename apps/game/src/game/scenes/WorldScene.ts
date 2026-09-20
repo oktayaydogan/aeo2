@@ -116,26 +116,6 @@ export class WorldScene extends Phaser.Scene {
         hitPoints: 550,
         trainingQueue: []
       },
-      {
-        id: "enemy-barracks",
-        ownerId: "player-2",
-        kind: "barracks",
-        position: { x: 10, y: 2 },
-        progress: 1,
-        completed: true,
-        hitPoints: 1200,
-        trainingQueue: []
-      },
-      {
-        id: "enemy-archery-range",
-        ownerId: "player-2",
-        kind: "archery-range",
-        position: { x: 10, y: 6 },
-        progress: 1,
-        completed: true,
-        hitPoints: 1050,
-        trainingQueue: []
-      }
     ],
     dropOffPoints: [
       {
