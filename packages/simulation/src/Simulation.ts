@@ -14,12 +14,15 @@ import type {
   MoveCommand,
   PlayerPopulationState,
   PlayerStockpileState,
+  ResearchCommand,
   ResourceKind,
   ResourceNodeState,
   ResourceStockpile,
   SimulationOptions,
   SetRallyPointCommand,
   SimulationSnapshot,
+  TechnologyDefinition,
+  TechnologyKind,
   TrainCommand,
   UnitDefinition,
   UnitKind,
@@ -82,6 +85,8 @@ export class Simulation {
   private readonly stockpiles = new Map<string, ResourceStockpile>();
   private readonly buildingDefinitions = new Map<string, BuildingDefinition>();
   private readonly unitDefinitions = new Map<string, UnitDefinition>();
+  private readonly technologyDefinitions = new Map<string, TechnologyDefinition>();
+  private readonly researchedTechnologies = new Map<string, Set<TechnologyKind>>();
   private readonly buildings = new Map<string, BuildingState>();
   private readonly aiPlayers: readonly AiPlayerDefinition[];
   private readonly aiStates = new Map<string, AiPlayerState>();
@@ -103,7 +108,10 @@ export class Simulation {
     this.tickDurationMs = 1000 / this.tickRate;
     this.aiPlayers = (options.aiPlayers ?? []).map((definition) => ({
       ...definition,
-      thinkIntervalTicks: definition.thinkIntervalTicks ?? this.tickRate
+      thinkIntervalTicks: definition.thinkIntervalTicks ?? this.tickRate,
+      targetVillagers: definition.targetVillagers ?? 5,
+      targetMilitary: definition.targetMilitary ?? 6,
+      attackThreshold: definition.attackThreshold ?? 4
     }));
     for (const ai of this.aiPlayers) {
       this.aiStates.set(ai.playerId, {
@@ -137,6 +145,18 @@ export class Simulation {
 
       this.validateUnitDefinition(definition);
       this.unitDefinitions.set(definition.kind, cloneUnitDefinition(definition));
+    }
+
+    for (const definition of options.technologyDefinitions ?? []) {
+      if (this.technologyDefinitions.has(definition.kind)) {
+        throw new Error(`Duplicate technology definition: ${definition.kind}`);
+      }
+
+      this.validateTechnologyDefinition(definition);
+      this.technologyDefinitions.set(
+        definition.kind,
+        cloneTechnologyDefinition(definition)
+      );
     }
 
     for (const building of options.buildings ?? []) {
@@ -220,6 +240,7 @@ export class Simulation {
     this.processEconomy();
     this.processConstruction();
     this.processTraining();
+    this.processResearch();
     this.processCombat();
     this.resolveUnitSeparation();
     this.tick += 1;
@@ -240,6 +261,12 @@ export class Simulation {
         this.calculatePopulation(playerId)
       ),
       aiPlayers: [...this.aiStates.values()].map((state) => ({ ...state })),
+      technologies: this.playerIds().map((playerId) => ({
+        playerId,
+        researched: [
+          ...(this.researchedTechnologies.get(playerId) ?? new Set())
+        ].sort()
+      })),
       match: { ...this.matchState },
       buildings: [...this.buildings.values()].map(cloneBuilding)
     };
@@ -261,6 +288,9 @@ export class Simulation {
           break;
         case "train":
           this.applyTrainCommand(command);
+          break;
+        case "research":
+          this.applyResearchCommand(command);
           break;
         case "set-rally-point":
           this.applySetRallyPointCommand(command);
@@ -454,6 +484,38 @@ export class Simulation {
     spendResources(stockpile, definition.cost);
     building.trainingQueue.push({
       unitKind: definition.kind,
+      progress: 0
+    });
+  }
+
+  private applyResearchCommand(command: ResearchCommand): void {
+    const building = this.buildings.get(command.buildingId);
+    const definition = this.technologyDefinitions.get(
+      command.technologyKind
+    );
+
+    if (
+      !building ||
+      building.ownerId !== command.playerId ||
+      !building.completed ||
+      !definition ||
+      building.kind !== definition.buildingKind ||
+      (building.researchQueue?.length ?? 0) > 0 ||
+      this.hasTechnology(command.playerId, definition.kind)
+    ) {
+      return;
+    }
+
+    const stockpile = this.ensureStockpile(command.playerId);
+
+    if (!hasResources(stockpile, definition.cost)) {
+      return;
+    }
+
+    spendResources(stockpile, definition.cost);
+    building.researchQueue ??= [];
+    building.researchQueue.push({
+      technologyKind: definition.kind,
       progress: 0
     });
   }
@@ -754,6 +816,45 @@ export class Simulation {
           spawnedUnit.activity = "idle";
         }
       }
+    }
+  }
+
+  private processResearch(): void {
+    for (const building of this.buildings.values()) {
+      const item = building.researchQueue?.[0];
+
+      if (!building.completed || !item) {
+        continue;
+      }
+
+      const definition = this.technologyDefinitions.get(
+        item.technologyKind
+      );
+
+      if (!definition) {
+        building.researchQueue?.shift();
+        continue;
+      }
+
+      item.progress = Math.min(
+        item.progress +
+          1 / (definition.researchTimeSeconds * this.tickRate),
+        1
+      );
+
+      if (item.progress < 1 - ARRIVAL_EPSILON) {
+        continue;
+      }
+
+      let researched = this.researchedTechnologies.get(building.ownerId);
+
+      if (!researched) {
+        researched = new Set<TechnologyKind>();
+        this.researchedTechnologies.set(building.ownerId, researched);
+      }
+
+      researched.add(definition.kind);
+      building.researchQueue?.shift();
     }
   }
 
@@ -1615,8 +1716,39 @@ export class Simulation {
   ): boolean {
     return (
       (buildingKind === "town-center" && unitKind === "villager") ||
-      (buildingKind === "barracks" && unitKind === "militia")
+      (buildingKind === "barracks" && unitKind === "militia") ||
+      (buildingKind === "archery-range" && unitKind === "archer")
     );
+  }
+
+  private hasTechnology(
+    playerId: string,
+    technologyKind: TechnologyKind
+  ): boolean {
+    return (
+      this.researchedTechnologies.get(playerId)?.has(technologyKind) ??
+      false
+    );
+  }
+
+  private attackDamageFor(
+    unit: RuntimeUnit,
+    definition: UnitDefinition
+  ): number {
+    let damage = definition.attackDamage;
+    const researched = this.researchedTechnologies.get(unit.ownerId);
+
+    if (!researched) {
+      return damage;
+    }
+
+    for (const technologyKind of researched) {
+      damage +=
+        this.technologyDefinitions.get(technologyKind)
+          ?.attackDamageBonus ?? 0;
+    }
+
+    return damage;
   }
 
   private ensureStockpile(playerId: string): ResourceStockpile {
@@ -1670,6 +1802,20 @@ export class Simulation {
       definition.populationCost <= 0
     ) {
       throw new Error(`Invalid unit definition: ${definition.kind}`);
+    }
+  }
+
+  private validateTechnologyDefinition(
+    definition: TechnologyDefinition
+  ): void {
+    if (
+      !Number.isFinite(definition.researchTimeSeconds) ||
+      definition.researchTimeSeconds <= 0 ||
+      !Number.isFinite(definition.attackDamageBonus)
+    ) {
+      throw new Error(
+        `Invalid technology definition: ${definition.kind}`
+      );
     }
   }
 
@@ -1908,6 +2054,7 @@ function cloneBuilding(building: BuildingState): BuildingState {
     ...building,
     position: { ...building.position },
     trainingQueue: building.trainingQueue.map((item) => ({ ...item })),
+    researchQueue: building.researchQueue?.map((item) => ({ ...item })) ?? [],
     rallyPoint: building.rallyPoint ? { ...building.rallyPoint } : null
   };
 }
@@ -1923,6 +2070,15 @@ function cloneBuildingDefinition(
 }
 
 function cloneUnitDefinition(definition: UnitDefinition): UnitDefinition {
+  return {
+    ...definition,
+    cost: { ...definition.cost }
+  };
+}
+
+function cloneTechnologyDefinition(
+  definition: TechnologyDefinition
+): TechnologyDefinition {
   return {
     ...definition,
     cost: { ...definition.cost }
@@ -1949,6 +2105,8 @@ function cloneCommand(command: GameCommand): GameCommand {
         position: { ...command.position }
       };
     case "train":
+      return { ...command };
+    case "research":
       return { ...command };
     case "set-rally-point":
       return {
