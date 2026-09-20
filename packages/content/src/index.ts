@@ -25,6 +25,15 @@ export const BUILDING_DEFINITIONS = [
     buildTimeSeconds: 15,
     maxHitPoints: 1200,
     populationProvided: 0
+  },
+  {
+    kind: "archery-range",
+    displayName: "Archery Range",
+    footprint: { width: 3, height: 3 },
+    cost: { wood: 100, food: 0, gold: 0 },
+    buildTimeSeconds: 18,
+    maxHitPoints: 1050,
+    populationProvided: 0
   }
 ] as const;
 
@@ -52,5 +61,28 @@ export const UNIT_DEFINITIONS = [
     attackRange: 0.75,
     attackCooldownSeconds: 1.4,
     populationCost: 1
+  },
+  {
+    kind: "archer",
+    displayName: "Archer",
+    cost: { wood: 25, food: 0, gold: 45 },
+    trainTimeSeconds: 14,
+    maxHitPoints: 30,
+    speed: 2.45,
+    attackDamage: 4,
+    attackRange: 4.5,
+    attackCooldownSeconds: 1.7,
+    populationCost: 1
+  }
+] as const;
+
+export const TECHNOLOGY_DEFINITIONS = [
+  {
+    kind: "forged-weapons",
+    displayName: "Forged Weapons",
+    cost: { wood: 0, food: 75, gold: 75 },
+    researchTimeSeconds: 20,
+    buildingKind: "barracks",
+    attackDamageBonus: 1
   }
 ] as const;
