@@ -1,3 +1,4 @@
+import { GridNavigation } from "@aeo2/simulation";
 import { describe, expect, it } from "vitest";
 import { createSkirmishSetup } from "./skirmishMap";
 
@@ -86,3 +87,18 @@ describe("createSkirmishSetup", () => {
     }
   });
 });
+
+
+  it("keeps a traversable route between both starting bases", () => {
+    for (const seed of [1, 2, 42, 1337, 7331, 20260920]) {
+      const setup = createSkirmishSetup(seed);
+      const navigation = new GridNavigation(setup.map);
+
+      const path = navigation.findPath(
+        { x: 5.5, y: 10.5 },
+        { x: 14.5, y: 10.5 }
+      );
+
+      expect(path.length).toBeGreaterThan(0);
+    }
+  });
