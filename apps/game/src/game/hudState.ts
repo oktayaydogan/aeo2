@@ -11,6 +11,7 @@ export type HudCommand =
   | "archery-range"
   | "villager"
   | "militia"
+  | "spearman"
   | "archer"
   | "forged-weapons";
 
@@ -42,6 +43,7 @@ export function getHudCommandAvailability(
       "archery-range": false,
       villager: false,
       militia: false,
+      spearman: false,
       archer: false,
       "forged-weapons": false
     };
@@ -62,6 +64,13 @@ export function getHudCommandAvailability(
       !input.selectedBuildingResearchBusy &&
       input.resources.food >= 60 &&
       input.resources.gold >= 20 &&
+      populationAvailable,
+    spearman:
+      input.selectedBuildingKind === "barracks" &&
+      input.selectedBuildingCompleted === true &&
+      !input.selectedBuildingResearchBusy &&
+      input.resources.wood >= 25 &&
+      input.resources.food >= 45 &&
       populationAvailable,
     archer:
       input.selectedBuildingKind === "archery-range" &&
