@@ -21,7 +21,8 @@ import {
   type IsometricProjection,
   type Point2
 } from "../isometric";
-import { BLOCKED_CELL_KEYS, PROTOTYPE_MAP } from "../prototypeMap";
+import { PROTOTYPE_MAP } from "../prototypeMap";
+import { createSkirmishSetup } from "../skirmishMap";
 import { getHudCommandAvailability } from "../hudState";
 import { createPrototypeTextures } from "../prototypeTextures";
 import { FogOfWar } from "../visibility";
@@ -36,7 +37,11 @@ const BENCHMARK_MODE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("benchmark") === "1";
 
-const RESOURCE_NODES: ResourceNodeState[] = [
+const DEFAULT_SKIRMISH_SEED = 20260920;
+const SKIRMISH_SEED = readSkirmishSeed();
+const SKIRMISH_SETUP = createSkirmishSetup(SKIRMISH_SEED);
+
+const PROTOTYPE_RESOURCE_NODES: ResourceNodeState[] = [
   {
     id: "tree-1",
     kind: "wood",
@@ -56,6 +61,18 @@ const RESOURCE_NODES: ResourceNodeState[] = [
     amount: 200
   }
 ];
+
+const ACTIVE_MAP = BENCHMARK_MODE
+  ? PROTOTYPE_MAP
+  : SKIRMISH_SETUP.map;
+const RESOURCE_NODES = BENCHMARK_MODE
+  ? PROTOTYPE_RESOURCE_NODES
+  : SKIRMISH_SETUP.resources;
+const ACTIVE_BLOCKED_CELL_KEYS = new Set(
+  (ACTIVE_MAP.blocked ?? []).map(
+    (cell) => `${cell.x},${cell.y}`
+  )
+);
 
 
 interface DragSelectionState {
@@ -79,7 +96,7 @@ interface HudButton {
 export class WorldScene extends Phaser.Scene {
   private readonly simulation = new Simulation({
     tickRate: DEFAULT_TICK_RATE,
-    map: PROTOTYPE_MAP,
+    map: ACTIVE_MAP,
     units: createInitialUnits(),
     resources: RESOURCE_NODES,
     buildingDefinitions: BUILDING_DEFINITIONS,
@@ -90,7 +107,9 @@ export class WorldScene extends Phaser.Scene {
         id: "town-center-1",
         ownerId: "player-1",
         kind: "town-center",
-        position: { x: 2, y: 8 },
+        position: BENCHMARK_MODE
+          ? { x: 2, y: 8 }
+          : { ...SKIRMISH_SETUP.player.townCenter },
         progress: 1,
         completed: true,
         hitPoints: 2400,
@@ -100,17 +119,33 @@ export class WorldScene extends Phaser.Scene {
         id: "enemy-town-center",
         ownerId: "player-2",
         kind: "town-center",
-        position: { x: 14, y: 2 },
+        position: BENCHMARK_MODE
+          ? { x: 14, y: 2 }
+          : { ...SKIRMISH_SETUP.enemy.townCenter },
         progress: 1,
         completed: true,
         hitPoints: 2400,
         trainingQueue: []
       },
       {
+        id: "player-house",
+        ownerId: "player-1",
+        kind: "house",
+        position: BENCHMARK_MODE
+          ? { x: 3, y: 4 }
+          : { ...SKIRMISH_SETUP.player.house },
+        progress: 1,
+        completed: true,
+        hitPoints: 550,
+        trainingQueue: []
+      },
+      {
         id: "enemy-house",
         ownerId: "player-2",
         kind: "house",
-        position: { x: 15, y: 7 },
+        position: BENCHMARK_MODE
+          ? { x: 15, y: 7 }
+          : { ...SKIRMISH_SETUP.enemy.house },
         progress: 1,
         completed: true,
         hitPoints: 550,
@@ -121,12 +156,16 @@ export class WorldScene extends Phaser.Scene {
       {
         id: "town-center-dropoff",
         ownerId: "player-1",
-        position: { x: 1.5, y: 10 }
+        position: BENCHMARK_MODE
+          ? { x: 1.5, y: 10 }
+          : { ...SKIRMISH_SETUP.player.dropOff }
       },
       {
         id: "enemy-town-center-dropoff",
         ownerId: "player-2",
-        position: { x: 13.5, y: 4 }
+        position: BENCHMARK_MODE
+          ? { x: 13.5, y: 4 }
+          : { ...SKIRMISH_SETUP.enemy.dropOff }
       }
     ],
     aiPlayers: BENCHMARK_MODE
@@ -364,7 +403,7 @@ export class WorldScene extends Phaser.Scene {
         const right = gridToScreen({ x: x + 1, y }, this.projection);
         const bottom = gridToScreen({ x: x + 1, y: y + 1 }, this.projection);
         const left = gridToScreen({ x, y: y + 1 }, this.projection);
-        const blocked = BLOCKED_CELL_KEYS.has(`${x},${y}`);
+        const blocked = ACTIVE_BLOCKED_CELL_KEYS.has(`${x},${y}`);
 
         graphics.fillStyle(
           blocked ? 0x4a4b47 : (x + y) % 2 === 0 ? 0x29483c : 0x2d4e41,
@@ -1487,7 +1526,7 @@ export class WorldScene extends Phaser.Scene {
     this.objectiveText?.setText(
       snapshot.match.status === "ended"
         ? "Match complete"
-        : "Objective · Destroy the enemy Town Center"
+        : `Objective · Destroy the enemy Town Center · Seed ${SKIRMISH_SEED}`
     );
   }
 
@@ -1867,6 +1906,8 @@ function createInitialUnits(): UnitState[] {
 
 function createEconomyUnits(): UnitState[] {
   const units: UnitState[] = [];
+  const playerOrigin = SKIRMISH_SETUP.player.unitsOrigin;
+  const enemyOrigin = SKIRMISH_SETUP.enemy.unitsOrigin;
 
   for (let row = 0; row < 2; row += 1) {
     for (let column = 0; column < 4; column += 1) {
@@ -1877,8 +1918,8 @@ function createEconomyUnits(): UnitState[] {
         ownerId: "player-1",
         kind: "villager",
         position: {
-          x: 2.0 + column * 0.75,
-          y: 7.0 + row * 0.75
+          x: playerOrigin.x + column * 0.7,
+          y: playerOrigin.y + row * 0.7
         },
         destination: null,
         speed: 2.4,
@@ -1895,8 +1936,8 @@ function createEconomyUnits(): UnitState[] {
       ownerId: "player-2",
       kind: "villager",
       position: {
-        x: 13.2 + index * 0.7,
-        y: 6.6
+        x: enemyOrigin.x - index * 0.7,
+        y: enemyOrigin.y
       },
       destination: null,
       speed: 2.4,
@@ -1910,7 +1951,10 @@ function createEconomyUnits(): UnitState[] {
     id: "enemy-militia-1",
     ownerId: "player-2",
     kind: "militia",
-    position: { x: 12.2, y: 9.5 },
+    position: {
+      x: enemyOrigin.x - 1.4,
+      y: enemyOrigin.y + 1.2
+    },
     destination: null,
     speed: 2.5,
     hitPoints: 40,
@@ -1967,6 +2011,19 @@ function createBenchmarkUnits(): UnitState[] {
   }
 
   return units;
+}
+
+function readSkirmishSeed(): number {
+  if (typeof window === "undefined") {
+    return DEFAULT_SKIRMISH_SEED;
+  }
+
+  const raw = new URLSearchParams(window.location.search).get("seed");
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : DEFAULT_SKIRMISH_SEED;
 }
 
 function unitVisionRadius(unit: UnitState): number {
