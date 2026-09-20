@@ -35,6 +35,7 @@ export type {
   TrainCommand,
   TrainingQueueItemState,
   UnitActivity,
+  UnitAttackBonus,
   UnitDefinition,
   UnitKind,
   UnitState,
