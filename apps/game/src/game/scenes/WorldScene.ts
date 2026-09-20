@@ -492,8 +492,11 @@ export class WorldScene extends Phaser.Scene {
     const commands: HudButton["command"][] = [
       "house",
       "barracks",
+      "archery-range",
       "villager",
-      "militia"
+      "militia",
+      "archer",
+      "forged-weapons"
     ];
 
     for (const command of commands) {
@@ -516,8 +519,17 @@ export class WorldScene extends Phaser.Scene {
         .setDepth(100_005);
 
       background.on("pointerdown", () => {
-        if (command === "house" || command === "barracks") {
+        if (
+          command === "house" ||
+          command === "barracks" ||
+          command === "archery-range"
+        ) {
           this.setPlacementMode(command);
+          return;
+        }
+
+        if (command === "forged-weapons") {
+          this.issueResearchCommand(command);
           return;
         }
 
@@ -577,13 +589,16 @@ export class WorldScene extends Phaser.Scene {
     this.selectionTitleText?.setPosition(24, height - 108);
     this.selectionDetailsText?.setPosition(24, height - 78);
 
-    const buttonStartX = Math.max(360, width - 490);
-    const buttonY = height - 64;
+    const buttonStartX = Math.max(350, width - 480);
+    const firstRowY = height - 92;
 
     this.hudButtons.forEach((button, index) => {
-      const x = buttonStartX + index * 116;
-      button.background.setPosition(x, buttonY);
-      button.label.setPosition(x, buttonY);
+      const column = index % 4;
+      const row = Math.floor(index / 4);
+      const x = buttonStartX + column * 116;
+      const y = firstRowY + row * 58;
+      button.background.setPosition(x, y);
+      button.label.setPosition(x, y);
     });
 
     if (snapshot.match.status === "ended") {
@@ -624,6 +639,9 @@ export class WorldScene extends Phaser.Scene {
         .addKey(Phaser.Input.Keyboard.KeyCodes.B)
         .on("down", () => this.setPlacementMode("barracks"));
       this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.X)
+        .on("down", () => this.setPlacementMode("archery-range"));
+      this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
         .on("down", () => this.setPlacementMode(undefined));
       this.input.keyboard
@@ -632,6 +650,12 @@ export class WorldScene extends Phaser.Scene {
       this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.V)
         .on("down", () => this.issueTrainCommand("villager"));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.C)
+        .on("down", () => this.issueTrainCommand("archer"));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.F)
+        .on("down", () => this.issueResearchCommand("forged-weapons"));
       this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.R)
         .on("down", () => {
@@ -820,6 +844,23 @@ export class WorldScene extends Phaser.Scene {
       playerId: "player-1",
       buildingId,
       unitKind
+    });
+  }
+
+  private issueResearchCommand(
+    technologyKind: TechnologyKind
+  ): void {
+    const buildingId = this.selectedBuildingId;
+
+    if (!buildingId) {
+      return;
+    }
+
+    this.simulation.queueCommand({
+      type: "research",
+      playerId: "player-1",
+      buildingId,
+      technologyKind
     });
   }
 
