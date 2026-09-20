@@ -1377,6 +1377,10 @@ export class WorldScene extends Phaser.Scene {
     const selectedBuilding = snapshot.buildings.find(
       (building) => building.id === this.selectedBuildingId
     );
+    const playerTechnologies =
+      snapshot.technologies.find(
+        (entry) => entry.playerId === "player-1"
+      )?.researched ?? [];
 
     this.economyText.setText(
       `WOOD  ${Math.floor(stockpile?.resources.wood ?? 0)}     FOOD  ${Math.floor(
@@ -1461,11 +1465,6 @@ export class WorldScene extends Phaser.Scene {
         "Select a production building to train units."
       ]);
     }
-
-    const playerTechnologies =
-      snapshot.technologies.find(
-        (entry) => entry.playerId === "player-1"
-      )?.researched ?? [];
 
     const availability = getHudCommandAvailability({
       selectedUnitKinds: selectedUnits.map((unit) => unit.kind),
