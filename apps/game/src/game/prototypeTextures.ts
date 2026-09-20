@@ -4,6 +4,7 @@ const TEXTURE_KEYS = [
   "unit-villager",
   "unit-militia",
   "unit-archer",
+  "unit-spearman",
   "resource-wood",
   "resource-food",
   "resource-gold",
@@ -21,6 +22,7 @@ export function createPrototypeTextures(scene: Phaser.Scene): void {
   createVillagerTexture(scene);
   createMilitiaTexture(scene);
   createArcherTexture(scene);
+  createSpearmanTexture(scene);
   createResourceTextures(scene);
   createBuildingTextures(scene);
 }
@@ -79,6 +81,24 @@ function createArcherTexture(scene: Phaser.Scene): void {
   g.lineStyle(1, 0xded5b5, 0.9);
   g.lineBetween(13, 17, 24, 11);
   g.generateTexture("unit-archer", 28, 32);
+  g.destroy();
+}
+
+function createSpearmanTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists("unit-spearman")) return;
+
+  const g = graphics(scene);
+  g.fillStyle(0xd7bd7a, 1);
+  g.fillCircle(12, 7, 5);
+  g.fillStyle(0x866a50, 1);
+  g.fillTriangle(5, 13, 19, 13, 12, 28);
+  g.lineStyle(2, 0x87653d, 1);
+  g.lineBetween(20, 27, 24, 2);
+  g.fillStyle(0xc9c4af, 1);
+  g.fillTriangle(22, 4, 24, 0, 26, 5);
+  g.fillStyle(0x5e4630, 1);
+  g.fillCircle(5, 18, 4);
+  g.generateTexture("unit-spearman", 28, 32);
   g.destroy();
 }
 
