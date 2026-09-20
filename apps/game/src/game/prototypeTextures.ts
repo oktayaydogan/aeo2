@@ -3,12 +3,14 @@ import Phaser from "phaser";
 const TEXTURE_KEYS = [
   "unit-villager",
   "unit-militia",
+  "unit-archer",
   "resource-wood",
   "resource-food",
   "resource-gold",
   "building-town-center",
   "building-house",
-  "building-barracks"
+  "building-barracks",
+  "building-archery-range"
 ] as const;
 
 export function createPrototypeTextures(scene: Phaser.Scene): void {
@@ -18,6 +20,7 @@ export function createPrototypeTextures(scene: Phaser.Scene): void {
 
   createVillagerTexture(scene);
   createMilitiaTexture(scene);
+  createArcherTexture(scene);
   createResourceTextures(scene);
   createBuildingTextures(scene);
 }
@@ -57,6 +60,25 @@ function createMilitiaTexture(scene: Phaser.Scene): void {
   g.fillStyle(0x4a3027, 1);
   g.fillCircle(5, 18, 4);
   g.generateTexture("unit-militia", 26, 32);
+  g.destroy();
+}
+
+function createArcherTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists("unit-archer")) return;
+
+  const g = graphics(scene);
+  g.fillStyle(0xd7bd7a, 1);
+  g.fillCircle(12, 7, 5);
+  g.fillStyle(0x6e7f63, 1);
+  g.fillTriangle(5, 13, 19, 13, 12, 28);
+  g.lineStyle(2, 0x6a4529, 1);
+  g.beginPath();
+  g.arc(20, 15, 7, -1.1, 1.1, false);
+  g.strokePath();
+  g.lineBetween(18, 8, 22, 22);
+  g.lineStyle(1, 0xded5b5, 0.9);
+  g.lineBetween(13, 17, 24, 11);
+  g.generateTexture("unit-archer", 28, 32);
   g.destroy();
 }
 
@@ -144,6 +166,24 @@ function createBuildingTextures(scene: Phaser.Scene): void {
     g.fillStyle(0x33271f, 1);
     g.fillRect(40, 45, 16, 25);
     g.generateTexture("building-town-center", 96, 72);
+    g.destroy();
+  }
+
+  if (!scene.textures.exists("building-archery-range")) {
+    const g = graphics(scene);
+    g.fillStyle(0x667154, 1);
+    g.fillRect(8, 22, 64, 34);
+    g.fillStyle(0x4c563f, 1);
+    g.fillTriangle(4, 23, 40, 5, 76, 23);
+    g.fillStyle(0xb9a77b, 1);
+    g.fillRect(15, 31, 12, 9);
+    g.fillRect(53, 31, 12, 9);
+    g.lineStyle(2, 0x6a4529, 1);
+    g.beginPath();
+    g.arc(40, 41, 10, -1.2, 1.2, false);
+    g.strokePath();
+    g.lineBetween(37, 31, 43, 51);
+    g.generateTexture("building-archery-range", 80, 60);
     g.destroy();
   }
 }
