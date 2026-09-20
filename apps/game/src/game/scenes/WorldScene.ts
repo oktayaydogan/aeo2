@@ -89,6 +89,7 @@ interface HudButton {
     | "archery-range"
     | "villager"
     | "militia"
+    | "spearman"
     | "archer"
     | "forged-weapons";
 }
@@ -514,6 +515,7 @@ export class WorldScene extends Phaser.Scene {
       "archery-range",
       "villager",
       "militia",
+      "spearman",
       "archer",
       "forged-weapons"
     ];
@@ -672,6 +674,9 @@ export class WorldScene extends Phaser.Scene {
       this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.C)
         .on("down", () => this.issueTrainCommand("archer"));
+      this.input.keyboard
+        .addKey(Phaser.Input.Keyboard.KeyCodes.P)
+        .on("down", () => this.issueTrainCommand("spearman"));
       this.input.keyboard
         .addKey(Phaser.Input.Keyboard.KeyCodes.F)
         .on("down", () => this.issueResearchCommand("forged-weapons"));
@@ -1509,6 +1514,7 @@ export class WorldScene extends Phaser.Scene {
       "archery-range": "ARCHERY RANGE\n100 Wood   [X]",
       villager: "VILLAGER\n50 Food   [V]",
       militia: "MILITIA\n60 Food · 20 Gold   [M]",
+      spearman: "SPEARMAN\n25 Wood · 45 Food   [P]",
       archer: "ARCHER\n25 Wood · 45 Gold   [C]",
       "forged-weapons": "FORGED WEAPONS\n75 Food · 75 Gold   [F]"
     };
@@ -2031,6 +2037,10 @@ function unitVisionRadius(unit: UnitState): number {
     return 6;
   }
 
+  if (unit.kind === "spearman") {
+    return 5.4;
+  }
+
   return unit.kind === "militia" ? 5.2 : 4.4;
 }
 
@@ -2056,6 +2066,10 @@ function unitTextureKey(kind: UnitKind): string {
 
   if (kind === "archer") {
     return "unit-archer";
+  }
+
+  if (kind === "spearman") {
+    return "unit-spearman";
   }
 
   return "unit-villager";
