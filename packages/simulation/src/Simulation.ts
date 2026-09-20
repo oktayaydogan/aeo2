@@ -924,11 +924,22 @@ export class Simulation {
       );
 
       if (economyEnabled) {
-        idleVillagers.forEach((villager, index) => {
-        const desiredKind = this.aiDesiredResourceKind(
-          stockpile,
-          index
+        this.aiTryConstruct(
+          ai.playerId,
+          idleVillagers,
+          population,
+          targetMilitary
         );
+
+        const gatherers = idleVillagers.filter(
+          (unit) => !unit.buildTask && unit.activity === "idle"
+        );
+
+        gatherers.forEach((villager, index) => {
+          const desiredKind = this.aiDesiredResourceKind(
+            stockpile,
+            index
+          );
         const resource = this.findNearestResourceForAi(
           villager.position,
           desiredKind
@@ -993,6 +1004,47 @@ export class Simulation {
             buildingId: archeryRange.id,
             unitKind: "archer"
           });
+        }
+      }
+
+      if (
+        economyEnabled &&
+        military.length >= targetMilitary
+      ) {
+        const researchBuilding = [...this.buildings.values()]
+          .filter(
+            (building) =>
+              building.ownerId === ai.playerId &&
+              building.completed &&
+              building.trainingQueue.length === 0 &&
+              (building.researchQueue?.length ?? 0) === 0
+          )
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .find((building) =>
+            [...this.technologyDefinitions.values()].some(
+              (technology) =>
+                technology.buildingKind === building.kind &&
+                !this.hasTechnology(ai.playerId, technology.kind)
+            )
+          );
+
+        if (researchBuilding) {
+          const technology = [...this.technologyDefinitions.values()]
+            .filter(
+              (entry) =>
+                entry.buildingKind === researchBuilding.kind &&
+                !this.hasTechnology(ai.playerId, entry.kind)
+            )
+            .sort((a, b) => a.kind.localeCompare(b.kind))[0];
+
+          if (technology) {
+            this.applyResearchCommand({
+              type: "research",
+              playerId: ai.playerId,
+              buildingId: researchBuilding.id,
+              technologyKind: technology.kind
+            });
+          }
         }
       }
 
@@ -1088,6 +1140,142 @@ export class Simulation {
         );
       }
     }
+  }
+
+  private aiTryConstruct(
+    playerId: string,
+    idleVillagers: readonly RuntimeUnit[],
+    population: PlayerPopulationState,
+    targetMilitary: number
+  ): boolean {
+    const builder = idleVillagers[0];
+
+    if (!builder) {
+      return false;
+    }
+
+    const ownedBuildings = [...this.buildings.values()].filter(
+      (building) => building.ownerId === playerId
+    );
+    const populationHeadroom =
+      population.cap - population.used - population.queued;
+    const houseUnderConstruction = ownedBuildings.some(
+      (building) =>
+        building.kind === "house" && !building.completed
+    );
+
+    if (
+      populationHeadroom <= 2 &&
+      !houseUnderConstruction &&
+      this.aiTryBuild(playerId, builder, "house")
+    ) {
+      return true;
+    }
+
+    const hasBarracks = ownedBuildings.some(
+      (building) => building.kind === "barracks"
+    );
+
+    if (
+      targetMilitary > 0 &&
+      !hasBarracks &&
+      this.aiTryBuild(playerId, builder, "barracks")
+    ) {
+      return true;
+    }
+
+    const hasArcheryRange = ownedBuildings.some(
+      (building) => building.kind === "archery-range"
+    );
+
+    if (
+      targetMilitary >= 4 &&
+      !hasArcheryRange &&
+      this.aiTryBuild(playerId, builder, "archery-range")
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private aiTryBuild(
+    playerId: string,
+    builder: RuntimeUnit,
+    buildingKind: BuildingState["kind"]
+  ): boolean {
+    const definition = this.buildingDefinitions.get(buildingKind);
+
+    if (!definition) {
+      return false;
+    }
+
+    const stockpile = this.ensureStockpile(playerId);
+
+    if (!hasResources(stockpile, definition.cost)) {
+      return false;
+    }
+
+    const townCenter = [...this.buildings.values()]
+      .filter(
+        (building) =>
+          building.ownerId === playerId &&
+          building.kind === "town-center"
+      )
+      .sort((a, b) => a.id.localeCompare(b.id))[0];
+
+    if (!townCenter) {
+      return false;
+    }
+
+    const offsets = [
+      { x: -4, y: 0 },
+      { x: -4, y: 4 },
+      { x: -4, y: 8 },
+      { x: 0, y: 5 },
+      { x: 4, y: 0 },
+      { x: 4, y: 5 },
+      { x: -8, y: 0 },
+      { x: -8, y: 5 },
+      { x: 0, y: -5 }
+    ] as const;
+
+    for (const offset of offsets) {
+      const position = {
+        x: townCenter.position.x + offset.x,
+        y: townCenter.position.y + offset.y
+      };
+
+      if (!this.canPlaceBuilding(definition, position)) {
+        continue;
+      }
+
+      if (
+        !this.findBuildApproachPosition(
+          builder,
+          definition,
+          position
+        )
+      ) {
+        continue;
+      }
+
+      const before = this.buildings.size;
+
+      this.applyBuildCommand({
+        type: "build",
+        playerId,
+        unitIds: [builder.id],
+        buildingKind,
+        position
+      });
+
+      if (this.buildings.size > before) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private aiDesiredResourceKind(
