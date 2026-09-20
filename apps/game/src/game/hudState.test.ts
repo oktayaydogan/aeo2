@@ -61,3 +61,64 @@ describe("getHudCommandAvailability", () => {
     expect(Object.values(ended).every((enabled) => !enabled)).toBe(true);
   });
 });
+
+
+describe("Phase 2 HUD commands", () => {
+  it("enables Archery Range construction for a villager with enough wood", () => {
+    const state = getHudCommandAvailability({
+      selectedUnitKinds: ["villager"],
+      resources: { wood: 100, food: 0, gold: 0 },
+      populationUsed: 1,
+      populationQueued: 0,
+      populationCap: 10,
+      matchEnded: false
+    });
+
+    expect(state["archery-range"]).toBe(true);
+  });
+
+  it("enables Archer production only from a completed Archery Range", () => {
+    const state = getHudCommandAvailability({
+      selectedUnitKinds: [],
+      selectedBuildingKind: "archery-range",
+      selectedBuildingCompleted: true,
+      resources: { wood: 25, food: 0, gold: 45 },
+      populationUsed: 4,
+      populationQueued: 0,
+      populationCap: 10,
+      matchEnded: false
+    });
+
+    expect(state.archer).toBe(true);
+    expect(state.militia).toBe(false);
+  });
+
+  it("enables Forged Weapons once and blocks it after research", () => {
+    const available = getHudCommandAvailability({
+      selectedUnitKinds: [],
+      selectedBuildingKind: "barracks",
+      selectedBuildingCompleted: true,
+      resources: { wood: 0, food: 75, gold: 75 },
+      populationUsed: 4,
+      populationQueued: 0,
+      populationCap: 10,
+      matchEnded: false
+    });
+
+    expect(available["forged-weapons"]).toBe(true);
+
+    const researched = getHudCommandAvailability({
+      selectedUnitKinds: [],
+      selectedBuildingKind: "barracks",
+      selectedBuildingCompleted: true,
+      resources: { wood: 0, food: 200, gold: 200 },
+      researchedTechnologies: ["forged-weapons"],
+      populationUsed: 4,
+      populationQueued: 0,
+      populationCap: 10,
+      matchEnded: false
+    });
+
+    expect(researched["forged-weapons"]).toBe(false);
+  });
+});
