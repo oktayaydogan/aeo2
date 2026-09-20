@@ -814,3 +814,257 @@ describe("Simulation building combat and match outcome", () => {
     expect(attacker?.position.x).toBeGreaterThan(4);
   });
 });
+
+
+describe("Phase 2 ranged production and research", () => {
+  const ARCHERY_RANGE = {
+    kind: "archery-range" as const,
+    displayName: "Archery Range",
+    footprint: { width: 3, height: 3 },
+    cost: { wood: 100, food: 0, gold: 0 },
+    buildTimeSeconds: 18,
+    maxHitPoints: 1050,
+    populationProvided: 0
+  };
+
+  const ARCHER = {
+    kind: "archer" as const,
+    displayName: "Archer",
+    cost: { wood: 25, food: 0, gold: 45 },
+    trainTimeSeconds: 2,
+    maxHitPoints: 30,
+    speed: 2.45,
+    attackDamage: 4,
+    attackRange: 4.5,
+    attackCooldownSeconds: 1.7,
+    populationCost: 1
+  };
+
+  const FORGED_WEAPONS = {
+    kind: "forged-weapons" as const,
+    displayName: "Forged Weapons",
+    cost: { wood: 0, food: 75, gold: 75 },
+    researchTimeSeconds: 0.1,
+    buildingKind: "barracks" as const,
+    attackDamageBonus: 1
+  };
+
+  it("trains an Archer from an Archery Range", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [HOUSE, ARCHERY_RANGE],
+      unitDefinitions: [ARCHER],
+      buildings: [
+        {
+          id: "house-1",
+          ownerId: "player-1",
+          kind: "house",
+          position: { x: 10, y: 10 },
+          progress: 1,
+          completed: true,
+          hitPoints: 550,
+          trainingQueue: []
+        },
+        {
+          id: "range-1",
+          ownerId: "player-1",
+          kind: "archery-range",
+          position: { x: 4, y: 4 },
+          progress: 1,
+          completed: true,
+          hitPoints: 1050,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 100, food: 0, gold: 100 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "train",
+      playerId: "player-1",
+      buildingId: "range-1",
+      unitKind: "archer"
+    });
+
+    const snapshot = runSteps(simulation, 60);
+
+    expect(
+      snapshot.units.some(
+        (unit) =>
+          unit.ownerId === "player-1" &&
+          unit.kind === "archer"
+      )
+    ).toBe(true);
+  });
+
+  it("researches a permanent attack bonus and applies it to combat", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [BARRACKS],
+      unitDefinitions: [MILITIA],
+      technologyDefinitions: [FORGED_WEAPONS],
+      units: [
+        militia("attacker", "player-1", { x: 2, y: 2 }),
+        militia("target", "player-2", { x: 2.5, y: 2 })
+      ],
+      buildings: [
+        {
+          id: "barracks-1",
+          ownerId: "player-1",
+          kind: "barracks",
+          position: { x: 6, y: 6 },
+          progress: 1,
+          completed: true,
+          hitPoints: 1200,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 0, food: 100, gold: 100 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "research",
+      playerId: "player-1",
+      buildingId: "barracks-1",
+      technologyKind: "forged-weapons"
+    });
+
+    runSteps(simulation, 3);
+
+    expect(
+      simulation.getSnapshot().technologies.find(
+        (entry) => entry.playerId === "player-1"
+      )?.researched
+    ).toContain("forged-weapons");
+
+    simulation.queueCommand({
+      type: "attack",
+      playerId: "player-1",
+      unitIds: ["attacker"],
+      targetUnitId: "target"
+    });
+
+    simulation.step();
+
+    expect(
+      simulation.getSnapshot().units.find(
+        (unit) => unit.id === "target"
+      )?.hitPoints
+    ).toBe(35);
+  });
+});
+
+describe("Phase 2 skirmish AI economy", () => {
+  it("moves idle villagers onto deterministic resource gathering jobs", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      unitDefinitions: [VILLAGER, MILITIA],
+      units: [
+        villager("ai-villager-1", "player-2", { x: 6, y: 6 }),
+        villager("ai-villager-2", "player-2", { x: 6.5, y: 6 })
+      ],
+      resources: [
+        {
+          id: "ai-tree",
+          kind: "wood",
+          position: { x: 8, y: 6 },
+          amount: 100
+        },
+        {
+          id: "ai-food",
+          kind: "food",
+          position: { x: 6, y: 8 },
+          amount: 100
+        }
+      ],
+      dropOffPoints: [
+        {
+          id: "ai-dropoff",
+          ownerId: "player-2",
+          position: { x: 5.5, y: 6 }
+        }
+      ],
+      aiPlayers: [
+        {
+          playerId: "player-2",
+          enemyPlayerId: "player-1",
+          thinkIntervalTicks: 1,
+          targetVillagers: 2,
+          targetMilitary: 0,
+          attackThreshold: 99
+        }
+      ]
+    });
+
+    const snapshot = runSteps(simulation, 100);
+    const resources = snapshot.stockpiles.find(
+      (entry) => entry.playerId === "player-2"
+    )?.resources;
+
+    expect((resources?.wood ?? 0) + (resources?.food ?? 0)).toBeGreaterThan(0);
+    expect(snapshot.aiPlayers[0]?.mode).toBe("military");
+  });
+
+  it("queues military production before the attack threshold is reached", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [BARRACKS, TOWN_CENTER],
+      unitDefinitions: [VILLAGER, MILITIA],
+      units: [
+        villager("ai-villager-1", "player-2", { x: 4, y: 4 })
+      ],
+      buildings: [
+        {
+          id: "ai-town-center",
+          ownerId: "player-2",
+          kind: "town-center",
+          position: { x: 2, y: 8 },
+          progress: 1,
+          completed: true,
+          hitPoints: 2400,
+          trainingQueue: []
+        },
+        {
+          id: "ai-barracks",
+          ownerId: "player-2",
+          kind: "barracks",
+          position: { x: 8, y: 8 },
+          progress: 1,
+          completed: true,
+          hitPoints: 1200,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-2": { wood: 0, food: 200, gold: 100 }
+      },
+      aiPlayers: [
+        {
+          playerId: "player-2",
+          enemyPlayerId: "player-1",
+          thinkIntervalTicks: 1,
+          targetVillagers: 1,
+          targetMilitary: 2,
+          attackThreshold: 2
+        }
+      ]
+    });
+
+    simulation.step();
+
+    const barracks = simulation.getSnapshot().buildings.find(
+      (building) => building.id === "ai-barracks"
+    );
+
+    expect(barracks?.trainingQueue[0]?.unitKind).toBe("militia");
+    expect(simulation.getSnapshot().aiPlayers[0]?.mode).toBe("military");
+  });
+});
