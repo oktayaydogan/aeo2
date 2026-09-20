@@ -915,6 +915,11 @@ export class Simulation {
         });
       }
 
+      const availableBuilders = villagers.filter(
+        (unit) =>
+          !unit.buildTask &&
+          !unit.attackTask
+      );
       const idleVillagers = villagers.filter(
         (unit) =>
           !unit.gatherTask &&
@@ -926,7 +931,7 @@ export class Simulation {
       if (economyEnabled) {
         this.aiTryConstruct(
           ai.playerId,
-          idleVillagers,
+          availableBuilders,
           population,
           targetMilitary
         );
