@@ -1068,3 +1068,124 @@ describe("Phase 2 skirmish AI economy", () => {
     expect(simulation.getSnapshot().aiPlayers[0]?.mode).toBe("military");
   });
 });
+
+
+describe("Phase 2 skirmish AI construction and research", () => {
+  it("constructs a missing Barracks from its own economy", () => {
+    const fastBarracks = {
+      ...BARRACKS,
+      buildTimeSeconds: 1
+    };
+
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 24, height: 24 },
+      buildingDefinitions: [TOWN_CENTER, fastBarracks],
+      unitDefinitions: [VILLAGER, MILITIA],
+      units: [
+        villager("ai-builder", "player-2", { x: 7, y: 7 })
+      ],
+      buildings: [
+        {
+          id: "ai-town-center",
+          ownerId: "player-2",
+          kind: "town-center",
+          position: { x: 8, y: 8 },
+          progress: 1,
+          completed: true,
+          hitPoints: 2400,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-2": { wood: 75, food: 0, gold: 0 }
+      },
+      aiPlayers: [
+        {
+          playerId: "player-2",
+          enemyPlayerId: "player-1",
+          thinkIntervalTicks: 1,
+          targetVillagers: 1,
+          targetMilitary: 2,
+          attackThreshold: 99
+        }
+      ]
+    });
+
+    runSteps(simulation, 2);
+
+    expect(
+      simulation.getSnapshot().buildings.some(
+        (building) =>
+          building.ownerId === "player-2" &&
+          building.kind === "barracks"
+      )
+    ).toBe(true);
+  });
+
+  it("researches an available upgrade after reaching its army target", () => {
+    const forgedWeapons = {
+      kind: "forged-weapons" as const,
+      displayName: "Forged Weapons",
+      cost: { wood: 0, food: 75, gold: 75 },
+      researchTimeSeconds: 0.1,
+      buildingKind: "barracks" as const,
+      attackDamageBonus: 1
+    };
+
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      buildingDefinitions: [TOWN_CENTER, BARRACKS],
+      unitDefinitions: [VILLAGER, MILITIA],
+      technologyDefinitions: [forgedWeapons],
+      units: [
+        militia("ai-militia-1", "player-2", { x: 8, y: 8 }),
+        militia("ai-militia-2", "player-2", { x: 8.7, y: 8 })
+      ],
+      buildings: [
+        {
+          id: "ai-town-center",
+          ownerId: "player-2",
+          kind: "town-center",
+          position: { x: 2, y: 2 },
+          progress: 1,
+          completed: true,
+          hitPoints: 2400,
+          trainingQueue: []
+        },
+        {
+          id: "ai-barracks",
+          ownerId: "player-2",
+          kind: "barracks",
+          position: { x: 10, y: 10 },
+          progress: 1,
+          completed: true,
+          hitPoints: 1200,
+          trainingQueue: []
+        }
+      ],
+      stockpiles: {
+        "player-2": { wood: 0, food: 100, gold: 100 }
+      },
+      aiPlayers: [
+        {
+          playerId: "player-2",
+          enemyPlayerId: "player-1",
+          thinkIntervalTicks: 1,
+          targetVillagers: 0,
+          targetMilitary: 2,
+          attackThreshold: 99
+        }
+      ]
+    });
+
+    runSteps(simulation, 5);
+
+    expect(
+      simulation.getSnapshot().technologies.find(
+        (entry) => entry.playerId === "player-2"
+      )?.researched
+    ).toContain("forged-weapons");
+  });
+});
