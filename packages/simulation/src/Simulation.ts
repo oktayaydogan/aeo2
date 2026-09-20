@@ -459,6 +459,7 @@ export class Simulation {
       !building.completed ||
       !definition ||
       !this.canBuildingTrainUnit(building.kind, definition.kind) ||
+      (building.researchQueue?.length ?? 0) > 0 ||
       building.trainingQueue.length >= MAX_TRAINING_QUEUE
     ) {
       return;
@@ -500,6 +501,7 @@ export class Simulation {
       !building.completed ||
       !definition ||
       building.kind !== definition.buildingKind ||
+      building.trainingQueue.length > 0 ||
       (building.researchQueue?.length ?? 0) > 0 ||
       this.hasTechnology(command.playerId, definition.kind)
     ) {
@@ -1102,18 +1104,19 @@ export class Simulation {
     position: Vector2,
     kind: ResourceKind
   ): ResourceNodeState | undefined {
-    return [...this.resources.values()]
-      .filter(
-        (resource) =>
-          resource.kind === kind &&
-          resource.amount > ARRIVAL_EPSILON
-      )
+    const available = [...this.resources.values()]
+      .filter((resource) => resource.amount > ARRIVAL_EPSILON)
       .sort(
         (a, b) =>
           distance(position, a.position) -
             distance(position, b.position) ||
           a.id.localeCompare(b.id)
-      )[0];
+      );
+
+    return (
+      available.find((resource) => resource.kind === kind) ??
+      available[0]
+    );
   }
 
   private processCombat(): void {
