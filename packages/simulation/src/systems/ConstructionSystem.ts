@@ -26,6 +26,7 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
     private readonly buildings: Map<string, BuildingState>,
     private readonly buildingDefinitions: Map<string, BuildingDefinition>,
     private readonly resources: Map<string, ResourceNodeState>,
+    private readonly units: Map<string, TUnit>,
     private readonly assignPath: (unit: TUnit, target: Vector2) => boolean
   ) {}
 
@@ -86,10 +87,9 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
 
   canPlaceBuilding(
     definition: BuildingDefinition,
-    position: Vector2,
-    units: Iterable<TUnit>
+    position: Vector2
   ): boolean {
-    const unitList = [...units];
+    const unitList = [...this.units.values()];
 
     for (let y = 0; y < definition.footprint.height; y += 1) {
       for (let x = 0; x < definition.footprint.width; x += 1) {
