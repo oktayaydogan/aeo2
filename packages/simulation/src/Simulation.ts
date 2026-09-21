@@ -1,4 +1,13 @@
 import { GridNavigation } from "./GridNavigation";
+import {
+  ConstructionSystem,
+  buildingFootprintCells,
+  type BuildTask
+} from "./systems/ConstructionSystem";
+import {
+  EconomySystem,
+  type GatherTask
+} from "./systems/EconomySystem";
 import { MAX_TRAINING_QUEUE, ProductionSystem } from "./systems/ProductionSystem";
 import { ResearchSystem } from "./systems/ResearchSystem";
 import {
@@ -49,23 +58,6 @@ const UNIT_RADIUS = 0.26;
 const MIN_UNIT_DISTANCE = UNIT_RADIUS * 2;
 const SEPARATION_ITERATIONS = 2;
 
-const GATHER_RANGE = 0.48;
-const DROP_OFF_RANGE = 0.7;
-const VILLAGER_CARRY_CAPACITY = 10;
-const VILLAGER_GATHER_RATE = 4;
-
-type GatherPhase = "to-resource" | "gathering" | "to-dropoff";
-
-interface GatherTask {
-  resourceId: string;
-  phase: GatherPhase;
-  dropOffPointId?: string;
-}
-
-interface BuildTask {
-  buildingId: string;
-  target: Vector2;
-}
 
 interface AttackTask {
   targetType: "unit" | "building";
@@ -95,6 +87,8 @@ export class Simulation {
   private readonly buildingDefinitions = new Map<string, BuildingDefinition>();
   private readonly unitDefinitions = new Map<string, UnitDefinition>();
   private readonly technologyDefinitions = new Map<string, TechnologyDefinition>();
+  private readonly economySystem: EconomySystem;
+  private readonly constructionSystem: ConstructionSystem;
   private readonly productionSystem: ProductionSystem;
   private readonly researchSystem: ResearchSystem;
   private readonly buildings = new Map<string, BuildingState>();
@@ -131,6 +125,20 @@ export class Simulation {
         width: DEFAULT_MAP_SIZE,
         height: DEFAULT_MAP_SIZE
       }
+    );
+    this.economySystem = new EconomySystem(
+      this.tickRate,
+      this.resources,
+      this.dropOffPoints,
+      this.stockpiles
+    );
+    this.constructionSystem = new ConstructionSystem(
+      this.tickRate,
+      this.navigation,
+      this.buildings,
+      this.buildingDefinitions,
+      this.resources,
+      this.stockpiles
     );
 
     for (const definition of options.buildingDefinitions ?? []) {
@@ -254,8 +262,14 @@ export class Simulation {
     this.applyQueuedCommands();
     this.processAi();
     this.moveUnits();
-    this.processEconomy();
-    this.processConstruction();
+    this.economySystem.step(this.units.values(), {
+      assignPath: (unit, target) =>
+        this.assignPath(unit as RuntimeUnit, target)
+    });
+    this.constructionSystem.step(
+      this.units.values(),
+      (unit, target) => this.assignPath(unit as RuntimeUnit, target)
+    );
     this.productionSystem.step(this.buildings.values(), {
       findSpawnPosition: (building) => this.findSpawnPosition(building),
       spawnUnit: (building, definition, position) =>
@@ -355,113 +369,31 @@ export class Simulation {
   }
 
   private applyGatherCommand(command: GatherCommand): void {
-    const resource = this.resources.get(command.resourceId);
-
-    if (!resource || resource.amount <= ARRIVAL_EPSILON) {
-      return;
-    }
-
-    for (const unit of selectOwnedVillagers(
-      command.unitIds,
+    this.economySystem.startGather(
       command.playerId,
-      this.units
-    )) {
-
-      unit.buildTask = undefined;
-      unit.attackTask = undefined;
-      unit.gatherTask = {
-        resourceId: resource.id,
-        phase: "to-resource"
-      };
-
-      if (
-        unit.cargo &&
-        unit.cargo.amount > ARRIVAL_EPSILON &&
-        unit.cargo.kind !== resource.kind
-      ) {
-        this.beginReturnToDropOff(unit, unit.cargo.kind);
-        continue;
+      command.unitIds,
+      command.resourceId,
+      this.units,
+      {
+        assignPath: (unit, target) =>
+          this.assignPath(unit as RuntimeUnit, target)
       }
-
-      this.routeVillagerToResource(unit, resource);
-    }
+    );
   }
 
   private applyBuildCommand(command: BuildCommand): void {
-    const definition = this.buildingDefinitions.get(command.buildingKind);
-
-    if (!definition) {
-      return;
-    }
-
-    const position = {
-      x: Math.floor(command.position.x),
-      y: Math.floor(command.position.y)
-    };
-
-    if (!this.canPlaceBuilding(definition, position)) {
-      return;
-    }
-
-    const buildersWithTargets = selectOwnedVillagers(
-      command.unitIds,
+    this.constructionSystem.startBuild(
       command.playerId,
-      this.units
-    ).map((unit) => ({
-        unit,
-        target: this.findBuildApproachPosition(unit, definition, position)
-      }))
-      .filter(
-        (
-          entry
-        ): entry is {
-          unit: RuntimeUnit;
-          target: Vector2;
-        } => entry.target !== null
-      );
-
-    if (buildersWithTargets.length === 0) {
-      return;
-    }
-
-    const stockpile = this.ensureStockpile(command.playerId);
-
-    if (!hasResources(stockpile, definition.cost)) {
-      return;
-    }
-
-    spendResources(stockpile, definition.cost);
-
-    const buildingId = this.createBuildingId(definition.kind);
-    const building: BuildingState = {
-      id: buildingId,
-      ownerId: command.playerId,
-      kind: definition.kind,
-      position,
-      progress: 0,
-      completed: false,
-      hitPoints: 1,
-      trainingQueue: [],
-      rallyPoint: null
-    };
-
-    this.buildings.set(building.id, building);
-    this.navigation.blockCells(buildingFootprintCells(building, definition));
-
-    for (const { unit, target } of buildersWithTargets) {
-      unit.gatherTask = undefined;
-      unit.attackTask = undefined;
-      unit.buildTask = {
-        buildingId: building.id,
-        target: { ...target }
-      };
-      unit.activity = "moving";
-
-      if (!this.assignPath(unit, target)) {
-        unit.buildTask = undefined;
-        unit.activity = "idle";
+      command.unitIds,
+      command.buildingKind,
+      command.position,
+      this.units,
+      {
+        createBuildingId: (kind) => this.createBuildingId(kind),
+        assignPath: (unit, target) =>
+          this.assignPath(unit as RuntimeUnit, target)
       }
-    }
+    );
   }
 
   private applyTrainCommand(command: TrainCommand): void {
