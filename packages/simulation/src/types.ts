@@ -1,3 +1,15 @@
+import type {
+  AttackBuildingCommand as ProtocolAttackBuildingCommand,
+  AttackCommand as ProtocolAttackCommand,
+  BuildCommand as ProtocolBuildCommand,
+  GameCommand as ProtocolGameCommand,
+  GatherCommand as ProtocolGatherCommand,
+  MoveCommand as ProtocolMoveCommand,
+  ResearchCommand as ProtocolResearchCommand,
+  SetRallyPointCommand as ProtocolSetRallyPointCommand,
+  TrainCommand as ProtocolTrainCommand
+} from "@aeo2/protocol";
+
 export interface Vector2 {
   x: number;
   y: number;
@@ -174,62 +186,14 @@ export interface SimulationSnapshot {
   buildings: readonly BuildingState[];
 }
 
-export interface MoveCommand {
-  type: "move";
-  playerId: string;
-  unitIds: readonly string[];
-  target: Vector2;
-}
-
-export interface GatherCommand {
-  type: "gather";
-  playerId: string;
-  unitIds: readonly string[];
-  resourceId: string;
-}
-
-export interface BuildCommand {
-  type: "build";
-  playerId: string;
-  unitIds: readonly string[];
-  buildingKind: BuildingKind;
-  position: Vector2;
-}
-
-export interface TrainCommand {
-  type: "train";
-  playerId: string;
-  buildingId: string;
-  unitKind: UnitKind;
-}
-
-export interface ResearchCommand {
-  type: "research";
-  playerId: string;
-  buildingId: string;
-  technologyKind: TechnologyKind;
-}
-
-export interface SetRallyPointCommand {
-  type: "set-rally-point";
-  playerId: string;
-  buildingId: string;
-  target: Vector2;
-}
-
-export interface AttackCommand {
-  type: "attack";
-  playerId: string;
-  unitIds: readonly string[];
-  targetUnitId: string;
-}
-
-export interface AttackBuildingCommand {
-  type: "attack-building";
-  playerId: string;
-  unitIds: readonly string[];
-  targetBuildingId: string;
-}
+export type MoveCommand = ProtocolMoveCommand;
+export type GatherCommand = ProtocolGatherCommand;
+export type BuildCommand = ProtocolBuildCommand<BuildingKind>;
+export type TrainCommand = ProtocolTrainCommand<UnitKind>;
+export type ResearchCommand = ProtocolResearchCommand<TechnologyKind>;
+export type SetRallyPointCommand = ProtocolSetRallyPointCommand;
+export type AttackCommand = ProtocolAttackCommand;
+export type AttackBuildingCommand = ProtocolAttackBuildingCommand;
 
 export type MatchStatus = "playing" | "ended";
 
@@ -240,15 +204,11 @@ export interface MatchState {
   reason: "town-center-destroyed" | null;
 }
 
-export type GameCommand =
-  | MoveCommand
-  | GatherCommand
-  | BuildCommand
-  | TrainCommand
-  | ResearchCommand
-  | SetRallyPointCommand
-  | AttackCommand
-  | AttackBuildingCommand;
+export type GameCommand = ProtocolGameCommand<
+  BuildingKind,
+  UnitKind,
+  TechnologyKind
+>;
 
 export interface AiPlayerDefinition {
   playerId: string;
