@@ -146,12 +146,12 @@ Implemented:
 Verification:
 
 ```bash
-npm run typecheck --workspace=@aeo2/simulation
-npm run test --workspace=@aeo2/simulation
-npm run build --workspace=@aeo2/game
+npm run typecheck
+npm run test
+npm run build
 ```
 
-Vercel runs these checks before publishing the game.
+These root commands are the canonical repository gate. They run the corresponding script in every workspace that defines it, and Vercel uses the same gate before publishing the game.
 
 
 ## Playable match loop
