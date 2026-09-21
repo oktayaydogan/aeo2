@@ -47,7 +47,6 @@ export interface TrainingValidationInput {
   playerId: string;
   canBuildingTrainUnit: boolean;
   population: PlayerPopulationState;
-  stockpile: ResourceStockpile;
   maxTrainingQueue: number;
 }
 
@@ -57,7 +56,6 @@ export function canStartTraining({
   playerId,
   canBuildingTrainUnit,
   population,
-  stockpile,
   maxTrainingQueue
 }: TrainingValidationInput): boolean {
   if (
@@ -81,7 +79,7 @@ export function canStartTraining({
     return false;
   }
 
-  return hasResources(stockpile, definition.cost);
+  return true;
 }
 
 export interface ResearchValidationInput {
@@ -89,15 +87,13 @@ export interface ResearchValidationInput {
   definition: TechnologyDefinition | undefined;
   playerId: string;
   alreadyResearched: boolean;
-  stockpile: ResourceStockpile;
 }
 
 export function canStartResearch({
   building,
   definition,
   playerId,
-  alreadyResearched,
-  stockpile
+  alreadyResearched
 }: ResearchValidationInput): boolean {
   if (
     !building ||
@@ -112,7 +108,7 @@ export function canStartResearch({
     return false;
   }
 
-  return hasResources(stockpile, definition.cost);
+  return true;
 }
 
 export function canSetRallyPoint(
