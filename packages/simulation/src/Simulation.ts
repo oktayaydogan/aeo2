@@ -1,9 +1,9 @@
 import { GridNavigation } from "./GridNavigation";
+import { ResearchSystem } from "./systems/ResearchSystem";
 import {
   canAttackBuildingTarget,
   canAttackUnitTarget,
   canSetRallyPoint,
-  canStartResearch,
   canStartTraining,
   hasResources,
   selectCombatCapableUnits,
@@ -33,7 +33,6 @@ import type {
   SetRallyPointCommand,
   SimulationSnapshot,
   TechnologyDefinition,
-  TechnologyKind,
   TrainCommand,
   UnitDefinition,
   UnitKind,
@@ -97,7 +96,7 @@ export class Simulation {
   private readonly buildingDefinitions = new Map<string, BuildingDefinition>();
   private readonly unitDefinitions = new Map<string, UnitDefinition>();
   private readonly technologyDefinitions = new Map<string, TechnologyDefinition>();
-  private readonly researchedTechnologies = new Map<string, Set<TechnologyKind>>();
+  private readonly researchSystem: ResearchSystem;
   private readonly buildings = new Map<string, BuildingState>();
   private readonly aiPlayers: readonly AiPlayerDefinition[];
   private readonly aiStates = new Map<string, AiPlayerState>();
@@ -166,6 +165,11 @@ export class Simulation {
         cloneTechnologyDefinition(definition)
       );
     }
+
+    this.researchSystem = new ResearchSystem(
+      this.tickRate,
+      this.technologyDefinitions
+    );
 
     for (const building of options.buildings ?? []) {
       if (this.buildings.has(building.id)) {
@@ -248,7 +252,7 @@ export class Simulation {
     this.processEconomy();
     this.processConstruction();
     this.processTraining();
-    this.processResearch();
+    this.researchSystem.step(this.buildings.values());
     this.processCombat();
     this.resolveUnitSeparation();
     this.tick += 1;
@@ -271,9 +275,7 @@ export class Simulation {
       aiPlayers: [...this.aiStates.values()].map((state) => ({ ...state })),
       technologies: this.playerIds().map((playerId) => ({
         playerId,
-        researched: [
-          ...(this.researchedTechnologies.get(playerId) ?? new Set())
-        ].sort()
+        researched: this.researchSystem.getResearched(playerId)
       })),
       match: { ...this.matchState },
       buildings: [...this.buildings.values()].map(cloneBuilding)
@@ -485,38 +487,12 @@ export class Simulation {
   }
 
   private applyResearchCommand(command: ResearchCommand): void {
-    const building = this.buildings.get(command.buildingId);
-    const definition = this.technologyDefinitions.get(
-      command.technologyKind
+    this.researchSystem.startResearch(
+      command.playerId,
+      this.buildings.get(command.buildingId),
+      this.technologyDefinitions.get(command.technologyKind),
+      () => this.ensureStockpile(command.playerId)
     );
-    if (
-      !canStartResearch({
-        building,
-        definition,
-        playerId: command.playerId,
-        alreadyResearched: Boolean(
-          definition &&
-            this.hasTechnology(command.playerId, definition.kind)
-        )
-      }) ||
-      !building ||
-      !definition
-    ) {
-      return;
-    }
-
-    const stockpile = this.ensureStockpile(command.playerId);
-
-    if (!hasResources(stockpile, definition.cost)) {
-      return;
-    }
-
-    spendResources(stockpile, definition.cost);
-    building.researchQueue ??= [];
-    building.researchQueue.push({
-      technologyKind: definition.kind,
-      progress: 0
-    });
   }
 
   private applySetRallyPointCommand(command: SetRallyPointCommand): void {
@@ -804,45 +780,6 @@ export class Simulation {
     }
   }
 
-  private processResearch(): void {
-    for (const building of this.buildings.values()) {
-      const item = building.researchQueue?.[0];
-
-      if (!building.completed || !item) {
-        continue;
-      }
-
-      const definition = this.technologyDefinitions.get(
-        item.technologyKind
-      );
-
-      if (!definition) {
-        building.researchQueue?.shift();
-        continue;
-      }
-
-      item.progress = Math.min(
-        item.progress +
-          1 / (definition.researchTimeSeconds * this.tickRate),
-        1
-      );
-
-      if (item.progress < 1 - ARRIVAL_EPSILON) {
-        continue;
-      }
-
-      let researched = this.researchedTechnologies.get(building.ownerId);
-
-      if (!researched) {
-        researched = new Set<TechnologyKind>();
-        this.researchedTechnologies.set(building.ownerId, researched);
-      }
-
-      researched.add(definition.kind);
-      building.researchQueue?.shift();
-    }
-  }
-
   private processAi(): void {
     for (const ai of this.aiPlayers) {
       const interval = Math.max(1, ai.thinkIntervalTicks ?? this.tickRate);
@@ -1015,7 +952,7 @@ export class Simulation {
             [...this.technologyDefinitions.values()].some(
               (technology) =>
                 technology.buildingKind === building.kind &&
-                !this.hasTechnology(ai.playerId, technology.kind)
+                !this.researchSystem.hasTechnology(ai.playerId, technology.kind)
             )
           );
 
@@ -1024,7 +961,7 @@ export class Simulation {
             .filter(
               (entry) =>
                 entry.buildingKind === researchBuilding.kind &&
-                !this.hasTechnology(ai.playerId, entry.kind)
+                !this.researchSystem.hasTechnology(ai.playerId, entry.kind)
             )
             .sort((a, b) => a.kind.localeCompare(b.kind))[0];
 
@@ -2068,16 +2005,6 @@ export class Simulation {
     );
   }
 
-  private hasTechnology(
-    playerId: string,
-    technologyKind: TechnologyKind
-  ): boolean {
-    return (
-      this.researchedTechnologies.get(playerId)?.has(technologyKind) ??
-      false
-    );
-  }
-
   private attackDamageFor(
     unit: RuntimeUnit,
     definition: UnitDefinition,
@@ -2092,17 +2019,7 @@ export class Simulation {
         )?.damage ?? 0;
     }
 
-    const researched = this.researchedTechnologies.get(unit.ownerId);
-
-    if (!researched) {
-      return damage;
-    }
-
-    for (const technologyKind of researched) {
-      damage +=
-        this.technologyDefinitions.get(technologyKind)
-          ?.attackDamageBonus ?? 0;
-    }
+    damage += this.researchSystem.getAttackDamageBonus(unit.ownerId);
 
     return damage;
   }
