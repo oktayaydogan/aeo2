@@ -1,5 +1,5 @@
 import { GridNavigation } from "./GridNavigation";
-import { ProductionSystem } from "./systems/ProductionSystem";
+import { MAX_TRAINING_QUEUE, ProductionSystem } from "./systems/ProductionSystem";
 import { ResearchSystem } from "./systems/ResearchSystem";
 import {
   canAttackBuildingTarget,
@@ -23,7 +23,6 @@ import type {
   GatherCommand,
   MatchState,
   MoveCommand,
-  PlayerPopulationState,
   PlayerStockpileState,
   ResearchCommand,
   ResourceKind,
@@ -831,7 +830,7 @@ export class Simulation {
             (building) =>
               building.ownerId === ai.playerId &&
               building.completed &&
-              building.trainingQueue.length < 5
+              building.trainingQueue.length < MAX_TRAINING_QUEUE
           )
           .sort((a, b) => a.id.localeCompare(b.id));
 
