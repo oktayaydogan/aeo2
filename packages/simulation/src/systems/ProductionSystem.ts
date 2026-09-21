@@ -15,7 +15,7 @@ import type {
 } from "../types";
 
 const ARRIVAL_EPSILON = 0.000001;
-const MAX_TRAINING_QUEUE = 5;
+export const MAX_TRAINING_QUEUE = 5;
 
 export interface ProductionStepCallbacks {
   findSpawnPosition(building: BuildingState): Vector2 | null;
