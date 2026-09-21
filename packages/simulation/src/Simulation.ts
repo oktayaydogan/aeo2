@@ -5,6 +5,7 @@ import {
   canSetRallyPoint,
   canStartResearch,
   canStartTraining,
+  hasResources,
   selectCombatCapableUnits,
   selectOwnedUnits,
   selectOwnedVillagers
@@ -450,9 +451,6 @@ export class Simulation {
     const building = this.buildings.get(command.buildingId);
     const definition = this.unitDefinitions.get(command.unitKind);
     const population = this.calculatePopulation(command.playerId);
-    const stockpile =
-      this.stockpiles.get(command.playerId) ??
-      { wood: 0, food: 0, gold: 0 };
 
     if (
       !canStartTraining({
@@ -465,14 +463,19 @@ export class Simulation {
             this.canBuildingTrainUnit(building.kind, definition.kind)
         ),
         population,
-        stockpile,
         maxTrainingQueue: MAX_TRAINING_QUEUE
       })
     ) {
       return;
     }
 
-    spendResources(this.ensureStockpile(command.playerId), definition.cost);
+    const stockpile = this.ensureStockpile(command.playerId);
+
+    if (!hasResources(stockpile, definition.cost)) {
+      return;
+    }
+
+    spendResources(stockpile, definition.cost);
     building.trainingQueue.push({
       unitKind: definition.kind,
       progress: 0
@@ -484,10 +487,6 @@ export class Simulation {
     const definition = this.technologyDefinitions.get(
       command.technologyKind
     );
-    const stockpile =
-      this.stockpiles.get(command.playerId) ??
-      { wood: 0, food: 0, gold: 0 };
-
     if (
       !canStartResearch({
         building,
@@ -496,14 +495,19 @@ export class Simulation {
         alreadyResearched: Boolean(
           definition &&
             this.hasTechnology(command.playerId, definition.kind)
-        ),
-        stockpile
+        )
       })
     ) {
       return;
     }
 
-    spendResources(this.ensureStockpile(command.playerId), definition.cost);
+    const stockpile = this.ensureStockpile(command.playerId);
+
+    if (!hasResources(stockpile, definition.cost)) {
+      return;
+    }
+
+    spendResources(stockpile, definition.cost);
     building.researchQueue ??= [];
     building.researchQueue.push({
       technologyKind: definition.kind,
@@ -2317,17 +2321,6 @@ function distanceToBuilding(
     x: nearestX,
     y: nearestY
   });
-}
-
-function hasResources(
-  stockpile: ResourceStockpile,
-  cost: ResourceStockpile
-): boolean {
-  return (
-    stockpile.wood >= cost.wood &&
-    stockpile.food >= cost.food &&
-    stockpile.gold >= cost.gold
-  );
 }
 
 function spendResources(
