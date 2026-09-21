@@ -464,7 +464,9 @@ export class Simulation {
         ),
         population,
         maxTrainingQueue: MAX_TRAINING_QUEUE
-      })
+      }) ||
+      !building ||
+      !definition
     ) {
       return;
     }
@@ -496,7 +498,9 @@ export class Simulation {
           definition &&
             this.hasTechnology(command.playerId, definition.kind)
         )
-      })
+      }) ||
+      !building ||
+      !definition
     ) {
       return;
     }
