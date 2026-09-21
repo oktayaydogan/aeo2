@@ -1,10 +1,10 @@
 import { GridNavigation } from "./GridNavigation";
+import { ProductionSystem } from "./systems/ProductionSystem";
 import { ResearchSystem } from "./systems/ResearchSystem";
 import {
   canAttackBuildingTarget,
   canAttackUnitTarget,
   canSetRallyPoint,
-  canStartTraining,
   hasResources,
   selectCombatCapableUnits,
   selectOwnedUnits,
@@ -53,7 +53,6 @@ const GATHER_RANGE = 0.48;
 const DROP_OFF_RANGE = 0.7;
 const VILLAGER_CARRY_CAPACITY = 10;
 const VILLAGER_GATHER_RATE = 4;
-const MAX_TRAINING_QUEUE = 5;
 
 type GatherPhase = "to-resource" | "gathering" | "to-dropoff";
 
@@ -96,6 +95,7 @@ export class Simulation {
   private readonly buildingDefinitions = new Map<string, BuildingDefinition>();
   private readonly unitDefinitions = new Map<string, UnitDefinition>();
   private readonly technologyDefinitions = new Map<string, TechnologyDefinition>();
+  private readonly productionSystem: ProductionSystem;
   private readonly researchSystem: ResearchSystem;
   private readonly buildings = new Map<string, BuildingState>();
   private readonly aiPlayers: readonly AiPlayerDefinition[];
@@ -166,6 +166,11 @@ export class Simulation {
       );
     }
 
+    this.productionSystem = new ProductionSystem(
+      this.tickRate,
+      this.unitDefinitions,
+      this.buildingDefinitions
+    );
     this.researchSystem = new ResearchSystem(
       this.tickRate,
       this.technologyDefinitions
@@ -251,7 +256,13 @@ export class Simulation {
     this.moveUnits();
     this.processEconomy();
     this.processConstruction();
-    this.processTraining();
+    this.productionSystem.step(this.buildings.values(), {
+      findSpawnPosition: (building) => this.findSpawnPosition(building),
+      spawnUnit: (building, definition, position) =>
+        this.spawnProducedUnit(building, definition, position),
+      routeToRallyPoint: (unitId, target) =>
+        this.routeProducedUnitToRallyPoint(unitId, target)
+    });
     this.researchSystem.step(this.buildings.values());
     this.processCombat();
     this.resolveUnitSeparation();
@@ -270,7 +281,11 @@ export class Simulation {
         })
       ),
       population: this.playerIds().map((playerId) =>
-        this.calculatePopulation(playerId)
+        this.productionSystem.calculatePopulation(
+          playerId,
+          this.units.values(),
+          this.buildings.values()
+        )
       ),
       aiPlayers: [...this.aiStates.values()].map((state) => ({ ...state })),
       technologies: this.playerIds().map((playerId) => ({
@@ -450,40 +465,14 @@ export class Simulation {
   }
 
   private applyTrainCommand(command: TrainCommand): void {
-    const building = this.buildings.get(command.buildingId);
-    const definition = this.unitDefinitions.get(command.unitKind);
-    const population = this.calculatePopulation(command.playerId);
-
-    if (
-      !canStartTraining({
-        building,
-        definition,
-        playerId: command.playerId,
-        canBuildingTrainUnit: Boolean(
-          building &&
-            definition &&
-            this.canBuildingTrainUnit(building.kind, definition.kind)
-        ),
-        population,
-        maxTrainingQueue: MAX_TRAINING_QUEUE
-      }) ||
-      !building ||
-      !definition
-    ) {
-      return;
-    }
-
-    const stockpile = this.ensureStockpile(command.playerId);
-
-    if (!hasResources(stockpile, definition.cost)) {
-      return;
-    }
-
-    spendResources(stockpile, definition.cost);
-    building.trainingQueue.push({
-      unitKind: definition.kind,
-      progress: 0
-    });
+    this.productionSystem.startTraining(
+      command.playerId,
+      this.buildings.get(command.buildingId),
+      this.unitDefinitions.get(command.unitKind),
+      this.units.values(),
+      this.buildings.values(),
+      () => this.ensureStockpile(command.playerId)
+    );
   }
 
   private applyResearchCommand(command: ResearchCommand): void {
@@ -718,68 +707,6 @@ export class Simulation {
     }
   }
 
-  private processTraining(): void {
-    for (const building of this.buildings.values()) {
-      if (!building.completed || building.trainingQueue.length === 0) {
-        continue;
-      }
-
-      const item = building.trainingQueue[0];
-
-      if (!item) {
-        continue;
-      }
-
-      const definition = this.unitDefinitions.get(item.unitKind);
-
-      if (!definition) {
-        building.trainingQueue.shift();
-        continue;
-      }
-
-      item.progress = Math.min(
-        item.progress + 1 / (definition.trainTimeSeconds * this.tickRate),
-        1
-      );
-
-      if (item.progress < 1 - ARRIVAL_EPSILON) {
-        continue;
-      }
-
-      const spawnPosition = this.findSpawnPosition(building);
-
-      if (!spawnPosition) {
-        item.progress = 1;
-        continue;
-      }
-
-      const unitId = this.createUnitId(definition.kind);
-      const spawnedUnit: RuntimeUnit = {
-        id: unitId,
-        ownerId: building.ownerId,
-        kind: definition.kind,
-        position: spawnPosition,
-        destination: null,
-        speed: definition.speed,
-        hitPoints: definition.maxHitPoints,
-        activity: "idle",
-        cargo: null,
-        waypoints: [],
-        attackCooldownTicks: 0
-      };
-
-      this.units.set(unitId, spawnedUnit);
-      building.trainingQueue.shift();
-
-      if (building.rallyPoint) {
-        spawnedUnit.activity = "moving";
-        if (!this.assignPath(spawnedUnit, building.rallyPoint)) {
-          spawnedUnit.activity = "idle";
-        }
-      }
-    }
-  }
-
   private processAi(): void {
     for (const ai of this.aiPlayers) {
       const interval = Math.max(1, ai.thinkIntervalTicks ?? this.tickRate);
@@ -799,7 +726,11 @@ export class Simulation {
         const definition = this.unitDefinitions.get(unit.kind);
         return Boolean(definition && definition.attackDamage > 0);
       });
-      const population = this.calculatePopulation(ai.playerId);
+      const population = this.productionSystem.calculatePopulation(
+        ai.playerId,
+        this.units.values(),
+        this.buildings.values()
+      );
       const stockpile = this.ensureStockpile(ai.playerId);
 
       const townCenter = [...this.buildings.values()]
@@ -900,7 +831,7 @@ export class Simulation {
             (building) =>
               building.ownerId === ai.playerId &&
               building.completed &&
-              building.trainingQueue.length < MAX_TRAINING_QUEUE
+              building.trainingQueue.length < 5
           )
           .sort((a, b) => a.id.localeCompare(b.id));
 
@@ -1809,6 +1740,47 @@ export class Simulation {
     return null;
   }
 
+  private spawnProducedUnit(
+    building: BuildingState,
+    definition: UnitDefinition,
+    position: Vector2
+  ): string {
+    const unitId = this.createUnitId(definition.kind);
+    const spawnedUnit: RuntimeUnit = {
+      id: unitId,
+      ownerId: building.ownerId,
+      kind: definition.kind,
+      position: { ...position },
+      destination: null,
+      speed: definition.speed,
+      hitPoints: definition.maxHitPoints,
+      activity: "idle",
+      cargo: null,
+      waypoints: [],
+      attackCooldownTicks: 0
+    };
+
+    this.units.set(unitId, spawnedUnit);
+    return unitId;
+  }
+
+  private routeProducedUnitToRallyPoint(
+    unitId: string,
+    target: Vector2
+  ): void {
+    const unit = this.units.get(unitId);
+
+    if (!unit) {
+      return;
+    }
+
+    unit.activity = "moving";
+
+    if (!this.assignPath(unit, target)) {
+      unit.activity = "idle";
+    }
+  }
+
   private findSpawnPosition(building: BuildingState): Vector2 | null {
     const definition = this.buildingDefinitions.get(building.kind);
 
@@ -1953,56 +1925,6 @@ export class Simulation {
     }
 
     return [...ids].sort();
-  }
-
-  private calculatePopulation(playerId: string): PlayerPopulationState {
-    let used = 0;
-    let queued = 0;
-    let cap = 0;
-
-    for (const unit of this.units.values()) {
-      if (unit.ownerId !== playerId) {
-        continue;
-      }
-
-      used += this.unitDefinitions.get(unit.kind)?.populationCost ?? 1;
-    }
-
-    for (const building of this.buildings.values()) {
-      if (building.ownerId !== playerId) {
-        continue;
-      }
-
-      const buildingDefinition = this.buildingDefinitions.get(building.kind);
-
-      if (building.completed && buildingDefinition) {
-        cap += buildingDefinition.populationProvided;
-      }
-
-      for (const item of building.trainingQueue) {
-        queued +=
-          this.unitDefinitions.get(item.unitKind)?.populationCost ?? 1;
-      }
-    }
-
-    return {
-      playerId,
-      used,
-      queued,
-      cap
-    };
-  }
-
-  private canBuildingTrainUnit(
-    buildingKind: BuildingState["kind"],
-    unitKind: UnitKind
-  ): boolean {
-    return (
-      (buildingKind === "town-center" && unitKind === "villager") ||
-      (buildingKind === "barracks" &&
-        (unitKind === "militia" || unitKind === "spearman")) ||
-      (buildingKind === "archery-range" && unitKind === "archer")
-    );
   }
 
   private attackDamageFor(
