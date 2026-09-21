@@ -97,6 +97,14 @@ packages/
 - **v0.9** Accounts / rating / replay
 - **v1.0** Production release
 
+## v1.0 product direction — deep classic RTS mechanical parity
+
+AEO2 now targets **mechanical depth as close as practical to a mature classic RTS such as Age of Empires II while keeping all expressive content original**. This includes four-age progression, broad tech trees, original factions, deep economy, advanced counters/projectiles/siege/support mechanics, walls/gates/garrison, alternate victory conditions, naval/hybrid maps, and 2v2/4v4 team play.
+
+AEO2 must not copy protected third-party assets, audio, maps, UI art, text, faction/civilization identities, proprietary balance tables, names, or other copyrighted/trademarked expression. Runtime content and presentation remain original AEO2 work.
+
+The authoritative scope amendment is in [`docs/ROADMAP.md`](docs/ROADMAP.md#36-v10-mechanical-parity-scope-amendment).
+
 ## Production roadmap
 
 The detailed production roadmap, parallel-development model, milestone gates, acceptance criteria, multiplayer architecture, testing strategy, release requirements, and v1.0 launch checklist are maintained in [`docs/ROADMAP.md`](docs/ROADMAP.md).
