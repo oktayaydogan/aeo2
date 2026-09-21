@@ -5,7 +5,7 @@ import type {
   TechnologyDefinition,
   UnitDefinition,
   UnitState
-} from "./types";
+} from "../types";
 
 export function selectOwnedUnits<T extends UnitState>(
   unitIds: readonly string[],
