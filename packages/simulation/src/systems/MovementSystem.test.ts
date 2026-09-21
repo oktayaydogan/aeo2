@@ -42,6 +42,25 @@ describe("MovementSystem", () => {
     expect(unit.destination).toEqual({ x: 1, y: 0 });
   });
 
+  it("clears destination and returns to idle when the final waypoint is reached", () => {
+    const unit = createUnit("unit-1", { x: 0, y: 0 });
+    unit.activity = "moving";
+    unit.destination = { x: 0.05, y: 0 };
+    unit.waypoints = [{ x: 0.05, y: 0 }];
+
+    const system = new MovementSystem(
+      20,
+      new GridNavigation({ width: 10, height: 10 })
+    );
+
+    system.moveUnits([unit]);
+
+    expect(unit.position).toEqual({ x: 0.05, y: 0 });
+    expect(unit.destination).toBeNull();
+    expect(unit.waypoints).toEqual([]);
+    expect(unit.activity).toBe("idle");
+  });
+
   it("keeps 50-unit formation targets deterministic and unique", () => {
     const first = createFormationTargets({ x: 20, y: 20 }, 50);
     const second = createFormationTargets({ x: 20, y: 20 }, 50);
