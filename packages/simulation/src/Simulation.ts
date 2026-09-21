@@ -23,6 +23,7 @@ import type {
   GatherCommand,
   MatchState,
   MoveCommand,
+  PlayerPopulationState,
   PlayerStockpileState,
   ResearchCommand,
   ResourceKind,
