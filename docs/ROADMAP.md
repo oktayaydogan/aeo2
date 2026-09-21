@@ -2531,3 +2531,217 @@ When choosing the next work:
 5. keep changes reviewable;
 6. measure performance before redesigning for performance;
 7. do not move production complexity earlier than the architecture requires it.
+
+
+---
+
+# 36. v1.0 mechanical-parity scope amendment
+
+> **This section supersedes the earlier narrow-v1 exclusions wherever they conflict.**
+>
+> Product direction was updated on 2026-09-21: AEO2 should be mechanically as close as practical to the systemic depth of Age of Empires II while keeping all expressive content original. AEO2 must not copy protected names, artwork, audio, maps, UI art, text, civilization identities, proprietary data tables, or other copyrighted/trademarked expression. The goal is mechanical familiarity and depth, not copied presentation.
+
+## 36.1 Mechanical target
+
+A player experienced with a mature classic medieval-style RTS should be able to transfer most high-level habits:
+
+- multi-resource economy and worker tasking;
+- four-stage age progression;
+- large prerequisite-driven technology tree;
+- multiple military production branches and counter roles;
+- melee, ranged, mounted, siege, support/conversion-equivalent, naval and defensive-building gameplay;
+- projectile travel/accuracy and terrain/elevation considerations where appropriate;
+- formations, stances, patrol, attack-move, waypoints and shift queues;
+- wall/gate/base-defense gameplay;
+- garrison/ungarrison and repair;
+- farms and renewable economy;
+- hunt/herd/forage/fishing equivalents;
+- market resource exchange and trade;
+- relic/objective-equivalent map control and passive income;
+- team games, diplomacy relationships, tribute and shared vision;
+- land, water and hybrid procedural maps;
+- multiple victory conditions;
+- robust random-map generation;
+- AI that can use these systems without privileged direct state mutation;
+- replay/spectator-compatible authoritative simulation;
+- production multiplayer that is not architecturally limited to 1v1.
+
+## 36.2 Originality boundary
+
+Mechanical similarity does **not** permit copying expressive content.
+
+AEO2 production must use:
+
+- original faction names and identities;
+- original unit/building/technology names;
+- original art, animation, icons and UI;
+- original audio and music;
+- original map themes/layout presets;
+- original balance values and data tables;
+- original lore/text/copy;
+- original visual tech-tree presentation.
+
+References to other RTS games may be used internally to describe a generic mechanic, but runtime/player-facing content must remain AEO2-owned and original.
+
+## 36.3 Revised production gameplay scope
+
+The following are now required before v1.0 unless an explicit product decision removes them:
+
+### Economy depth
+
+- Food, Wood, Gold and Stone.
+- Multiple food sources with distinct worker behavior: forage/harvest, hunt, herd, farm and fishing equivalents.
+- Farms with finite food and repeat/reseed automation.
+- Specialized resource drop-off behavior/buildings as designed.
+- Worker construction acceleration from multiple builders.
+- Building/unit repair.
+- Resource depletion and retargeting.
+- Market resource buy/sell with dynamic price.
+- Land trade and water trade equivalents.
+- Economy technologies and gathering efficiency upgrades.
+
+### Progression and factions
+
+- Four gameplay ages/stages.
+- Data-driven prerequisite graph.
+- Broad generic technology tree.
+- Multiple original playable factions with:
+  - tech-tree availability differences;
+  - faction bonuses;
+  - team bonus;
+  - at least one unique unit/technology or equivalent distinctive mechanic.
+- Faction choice serialized into match/replay/network state.
+
+### Military depth
+
+- Infantry role families.
+- Ranged role families.
+- Mounted/mobile role families.
+- Siege role families.
+- Support/conversion-equivalent role.
+- Naval military/economy roles.
+- Defensive structures.
+- Data-driven armor/class/counter relationships.
+- Unit upgrades across ages.
+- Building upgrades where used.
+- Projectile travel and ranged accuracy rules.
+- Area/splash damage where required by siege.
+- Minimum range where required by siege/ranged balance.
+- Pack/deploy state where required by a siege design.
+- Formation and stance controls.
+- Garrison/ungarrison.
+- Transport capacity for naval transport equivalents.
+
+### Base building and map control
+
+- Walls.
+- Gates.
+- Connected wall placement UX.
+- Towers/defensive structures.
+- Garrisoned defensive effects where designed.
+- Objective/relic-equivalent neutral map objects.
+- Wonder/landmark-equivalent alternate victory structure or objective.
+- Elevation/terrain movement or combat modifiers where included in the balance model.
+
+### Naval and hybrid maps
+
+- Water terrain/navigation.
+- Dock/harbor-equivalent building.
+- Fishing economy.
+- Naval production.
+- Naval combat.
+- Transport ships/equivalent.
+- Water trade where part of v1 economy.
+- Land, water and hybrid random-map presets.
+
+### Team/multiplayer systems
+
+- Architecture and protocol support for 1v1, 2v2 and 4v4 at minimum.
+- Team assignment.
+- Ally/enemy relationship model.
+- Shared/team vision.
+- Resource tribute.
+- Team trade.
+- Team victory/defeat resolution.
+- Team matchmaking/custom lobby settings.
+- Reconnect and authoritative recovery for team matches.
+- Load/capacity verification for team-match entity counts.
+
+### Match rules
+
+- Conquest-style victory.
+- Objective/relic-control-equivalent victory.
+- Landmark/wonder-equivalent timed victory.
+- Configurable victory-condition selection where appropriate.
+- Surrender and team surrender semantics.
+- Match pause policy where applicable.
+- Game speed remains server-authoritative online.
+
+## 36.4 Scale target changes
+
+The original 100-entity benchmark remains an early regression baseline, not the final production ceiling.
+
+Before v1.0, performance verification must include:
+
+- late-game 1v1 entity/building counts;
+- representative 2v2;
+- representative 4v4;
+- projectile-heavy combat;
+- siege-heavy combat;
+- wall/gate pathfinding;
+- naval/hybrid navigation;
+- multiple AI players where supported;
+- fog/minimap at large map scale.
+
+Budgets must be measured on representative hardware and server capacity must be re-established after team-game scope is implemented.
+
+## 36.5 AI scope changes
+
+Production AI must understand, at minimum:
+
+- four-age progression;
+- faction-specific tech availability;
+- farms and renewable economy;
+- hunting/herding/fishing equivalents;
+- market exchange;
+- wall/gate interaction;
+- repair;
+- garrison/ungarrison when tactically useful;
+- siege production/use;
+- support/conversion-equivalent mechanics;
+- relic/objective-equivalent control;
+- naval economy/combat on water maps;
+- trade in team games;
+- tribute/team support;
+- team coordination targets;
+- alternate victory-condition defense/offense.
+
+AI is still required to operate through normal validated commands and available information.
+
+## 36.6 Revised milestone insertion
+
+The production sequence now inserts these gameplay milestones before final multiplayer/persistence hardening:
+
+1. **Parity Foundation** — generic task/action/class/projectile/terrain/garrison/wall contracts.
+2. **Deep Economy** — food-source diversity, farms, repair, multi-builder construction, market/trade.
+3. **Four Ages + Factions** — four-stage progression, broad tech tree, faction differences and unique content.
+4. **Advanced Combat** — deeper armor/counter classes, siege, support/conversion, projectiles, formations/stances.
+5. **Fortification + Objectives** — walls/gates/garrison/objective/alternate victory.
+6. **Naval + Hybrid Maps** — water navigation, fishing, docks, naval combat, transport/trade.
+7. **Team Games** — 2v2/4v4, diplomacy relationships, shared vision, tribute, team victory and team matchmaking.
+8. **Parity AI + Balance** — all new systems usable by AI and covered by balance scenarios.
+9. **Parity Scale Verification** — late-game 1v1/2v2/4v4 client/server performance and long-match verification.
+10. Existing replay, authoritative multiplayer, accounts, production hardening and release gates continue, but must support the expanded gameplay scope.
+
+## 36.7 Mechanical-parity completion gate
+
+v1.0 cannot be called mechanically complete while any launch-required system above exists only as:
+
+- a client-only mock;
+- a hard-coded one-off that cannot serialize/replay/network;
+- a player-only mechanic the AI cannot use where AI support is required;
+- a single-player-only mechanic that breaks authoritative multiplayer;
+- an unverified implementation without deterministic simulation coverage;
+- an implementation that exceeds accepted late-game performance budgets.
+
+The issue backlog is the execution source of truth. New parity issues reference this amendment and remain subject to the same Definition of Done, security, replay, network, performance and release requirements as the original roadmap.
