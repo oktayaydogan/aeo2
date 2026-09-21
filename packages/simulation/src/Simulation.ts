@@ -10,6 +10,10 @@ import {
   type GatherTask
 } from "./systems/EconomySystem";
 import {
+  CombatSystem,
+  type AttackTask
+} from "./systems/CombatSystem";
+import {
   canAttackBuildingTarget,
   canAttackUnitTarget,
   canSetRallyPoint,
@@ -57,11 +61,6 @@ const UNIT_RADIUS = 0.26;
 const MIN_UNIT_DISTANCE = UNIT_RADIUS * 2;
 const SEPARATION_ITERATIONS = 2;
 
-interface AttackTask {
-  targetType: "unit" | "building";
-  targetId: string;
-}
-
 interface RuntimeUnit extends UnitState {
   waypoints: Vector2[];
   gatherTask?: GatherTask;
@@ -89,6 +88,7 @@ export class Simulation {
   private readonly researchSystem: ResearchSystem;
   private readonly economySystem: EconomySystem<RuntimeUnit>;
   private readonly constructionSystem: ConstructionSystem<RuntimeUnit>;
+  private readonly combatSystem: CombatSystem<RuntimeUnit>;
   private readonly buildings = new Map<string, BuildingState>();
   private readonly aiPlayers: readonly AiPlayerDefinition[];
   private readonly aiStates = new Map<string, AiPlayerState>();
@@ -183,6 +183,24 @@ export class Simulation {
       this.tickRate,
       this.technologyDefinitions
     );
+    this.combatSystem = new CombatSystem(
+      this.tickRate,
+      this.units,
+      this.buildings,
+      this.unitDefinitions,
+      this.buildingDefinitions,
+      this.matchState,
+      this.navigation,
+      (playerId) => this.researchSystem.getAttackDamageBonus(playerId),
+      (unit, target) => this.assignPath(unit, target),
+      (unit, definition, position) =>
+        this.constructionSystem.findBuildApproachPosition(
+          unit,
+          definition,
+          position
+        ),
+      (unit) => this.constructionSystem.stopBuildTask(unit)
+    );
 
     for (const building of options.buildings ?? []) {
       if (this.buildings.has(building.id)) {
@@ -272,7 +290,7 @@ export class Simulation {
         this.routeProducedUnitToRallyPoint(unitId, target)
     });
     this.researchSystem.step(this.buildings.values());
-    this.processCombat();
+    this.combatSystem.step();
     this.resolveUnitSeparation();
     this.tick += 1;
   }
@@ -534,7 +552,7 @@ export class Simulation {
         targetId: target.id
       };
       unit.activity = "attacking";
-      this.routeAttackerToTarget(unit, target, definition);
+      this.combatSystem.routeAttackerToTarget(unit, target, definition);
     }
   }
 
@@ -572,7 +590,7 @@ export class Simulation {
         targetId: target.id
       };
       unit.activity = "attacking";
-      this.routeAttackerToBuilding(
+      this.combatSystem.routeAttackerToBuilding(
         unit,
         target,
         targetDefinition,
@@ -896,7 +914,7 @@ export class Simulation {
             targetType: "unit",
             targetId: target.id
           };
-          this.routeAttackerToTarget(attacker, target, definition);
+          this.combatSystem.routeAttackerToTarget(attacker, target, definition);
           continue;
         }
 
@@ -914,7 +932,7 @@ export class Simulation {
           targetType: "building",
           targetId: buildingTarget.id
         };
-        this.routeAttackerToBuilding(
+        this.combatSystem.routeAttackerToBuilding(
           attacker,
           buildingTarget,
           buildingDefinition,
@@ -1098,249 +1116,6 @@ export class Simulation {
     );
   }
 
-  private processCombat(): void {
-    const deadUnitIds = new Set<string>();
-    const destroyedBuildings = new Map<string, string>();
-
-    for (const unit of this.units.values()) {
-      if (unit.attackCooldownTicks > 0) {
-        unit.attackCooldownTicks -= 1;
-      }
-    }
-
-    for (const unit of this.units.values()) {
-      const task = unit.attackTask;
-
-      if (!task || deadUnitIds.has(unit.id)) {
-        continue;
-      }
-
-      const definition = this.unitDefinitions.get(unit.kind);
-
-      if (!definition || definition.attackDamage <= 0) {
-        this.stopAttackTask(unit);
-        continue;
-      }
-
-      if (task.targetType === "unit") {
-        const target = this.units.get(task.targetId);
-
-        if (
-          !target ||
-          target.ownerId === unit.ownerId ||
-          target.hitPoints <= 0
-        ) {
-          this.stopAttackTask(unit);
-          continue;
-        }
-
-        const targetDistance = distance(unit.position, target.position);
-
-        if (targetDistance > definition.attackRange) {
-          unit.activity = "attacking";
-
-          const needsRepath =
-            unit.waypoints.length === 0 ||
-            !unit.destination ||
-            distance(unit.destination, target.position) > 0.6;
-
-          if (needsRepath) {
-            this.routeAttackerToTarget(unit, target, definition);
-          }
-
-          continue;
-        }
-
-        unit.waypoints = [];
-        unit.destination = null;
-        unit.activity = "attacking";
-
-        if (unit.attackCooldownTicks > 0) {
-          continue;
-        }
-
-        target.hitPoints -= this.attackDamageFor(
-          unit,
-          definition,
-          target.kind
-        );
-        unit.attackCooldownTicks = Math.max(
-          1,
-          Math.round(definition.attackCooldownSeconds * this.tickRate)
-        );
-
-        if (target.hitPoints <= 0) {
-          deadUnitIds.add(target.id);
-        }
-
-        continue;
-      }
-
-      const building = this.buildings.get(task.targetId);
-      const buildingDefinition = building
-        ? this.buildingDefinitions.get(building.kind)
-        : undefined;
-
-      if (
-        !building ||
-        building.ownerId === unit.ownerId ||
-        building.hitPoints <= 0 ||
-        !buildingDefinition
-      ) {
-        this.stopAttackTask(unit);
-        continue;
-      }
-
-      const targetDistance = distanceToBuilding(
-        unit.position,
-        building,
-        buildingDefinition
-      );
-
-      if (targetDistance > definition.attackRange) {
-        unit.activity = "attacking";
-
-        if (
-          unit.waypoints.length === 0 &&
-          !this.routeAttackerToBuilding(
-            unit,
-            building,
-            buildingDefinition,
-            definition
-          )
-        ) {
-          this.stopAttackTask(unit);
-        }
-
-        continue;
-      }
-
-      unit.waypoints = [];
-      unit.destination = null;
-      unit.activity = "attacking";
-
-      if (unit.attackCooldownTicks > 0) {
-        continue;
-      }
-
-      building.hitPoints -= this.attackDamageFor(unit, definition);
-      unit.attackCooldownTicks = Math.max(
-        1,
-        Math.round(definition.attackCooldownSeconds * this.tickRate)
-      );
-
-      if (building.hitPoints <= 0) {
-        destroyedBuildings.set(building.id, unit.ownerId);
-      }
-    }
-
-    for (const unitId of deadUnitIds) {
-      this.units.delete(unitId);
-    }
-
-    for (const [buildingId, attackerOwnerId] of destroyedBuildings) {
-      const building = this.buildings.get(buildingId);
-
-      if (!building) {
-        continue;
-      }
-
-      const definition = this.buildingDefinitions.get(building.kind);
-
-      if (definition) {
-        this.navigation.unblockCells(
-          buildingFootprintCells(building, definition)
-        );
-      }
-
-      this.buildings.delete(buildingId);
-
-      if (building.kind === "town-center") {
-        this.matchState.status = "ended";
-        this.matchState.winnerPlayerId = attackerOwnerId;
-        this.matchState.loserPlayerId = building.ownerId;
-        this.matchState.reason = "town-center-destroyed";
-      }
-    }
-
-    if (deadUnitIds.size > 0 || destroyedBuildings.size > 0) {
-      for (const unit of this.units.values()) {
-        if (
-          unit.attackTask?.targetType === "unit" &&
-          deadUnitIds.has(unit.attackTask.targetId)
-        ) {
-          this.stopAttackTask(unit);
-        }
-
-        if (
-          unit.attackTask?.targetType === "building" &&
-          destroyedBuildings.has(unit.attackTask.targetId)
-        ) {
-          this.stopAttackTask(unit);
-        }
-
-        if (
-          unit.buildTask &&
-          destroyedBuildings.has(unit.buildTask.buildingId)
-        ) {
-          this.constructionSystem.stopBuildTask(unit);
-        }
-      }
-    }
-  }
-
-  private routeAttackerToTarget(
-    unit: RuntimeUnit,
-    target: RuntimeUnit,
-    definition: UnitDefinition
-  ): void {
-    if (distance(unit.position, target.position) <= definition.attackRange) {
-      unit.waypoints = [];
-      unit.destination = null;
-      unit.activity = "attacking";
-      return;
-    }
-
-    unit.activity = "attacking";
-
-    if (!this.assignPath(unit, target.position)) {
-      this.stopAttackTask(unit);
-    }
-  }
-
-  private routeAttackerToBuilding(
-    unit: RuntimeUnit,
-    target: BuildingState,
-    targetDefinition: BuildingDefinition,
-    unitDefinition: UnitDefinition
-  ): boolean {
-    if (
-      distanceToBuilding(
-        unit.position,
-        target,
-        targetDefinition
-      ) <= unitDefinition.attackRange
-    ) {
-      unit.waypoints = [];
-      unit.destination = null;
-      unit.activity = "attacking";
-      return true;
-    }
-
-    const approach = this.constructionSystem.findBuildApproachPosition(
-      unit,
-      targetDefinition,
-      target.position
-    );
-
-    if (!approach) {
-      return false;
-    }
-
-    unit.activity = "attacking";
-    return this.assignPath(unit, approach);
-  }
-
   private spawnProducedUnit(
     building: BuildingState,
     definition: UnitDefinition,
@@ -1460,13 +1235,6 @@ export class Simulation {
     unit.attackTask = undefined;
   }
 
-  private stopAttackTask(unit: RuntimeUnit): void {
-    unit.attackTask = undefined;
-    unit.waypoints = [];
-    unit.destination = null;
-    unit.activity = "idle";
-  }
-
   private createBuildingId(kind: string): string {
     let candidate = `${kind}-${this.nextBuildingSequence}`;
 
@@ -1512,25 +1280,6 @@ export class Simulation {
     }
 
     return [...ids].sort();
-  }
-
-  private attackDamageFor(
-    unit: RuntimeUnit,
-    definition: UnitDefinition,
-    targetKind?: UnitKind
-  ): number {
-    let damage = definition.attackDamage;
-
-    if (targetKind) {
-      damage +=
-        definition.bonuses?.find(
-          (bonus) => bonus.targetKind === targetKind
-        )?.damage ?? 0;
-    }
-
-    damage += this.researchSystem.getAttackDamageBonus(unit.ownerId);
-
-    return damage;
   }
 
   private ensureStockpile(playerId: string): ResourceStockpile {
@@ -1733,24 +1482,6 @@ function buildingCenter(
     x: building.position.x + definition.footprint.width / 2,
     y: building.position.y + definition.footprint.height / 2
   };
-}
-
-function distanceToBuilding(
-  point: Vector2,
-  building: BuildingState,
-  definition: BuildingDefinition
-): number {
-  const minX = building.position.x;
-  const minY = building.position.y;
-  const maxX = minX + definition.footprint.width;
-  const maxY = minY + definition.footprint.height;
-  const nearestX = Math.min(Math.max(point.x, minX), maxX);
-  const nearestY = Math.min(Math.max(point.y, minY), maxY);
-
-  return distance(point, {
-    x: nearestX,
-    y: nearestY
-  });
 }
 
 function spendResources(
