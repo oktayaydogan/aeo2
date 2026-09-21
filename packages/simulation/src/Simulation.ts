@@ -14,6 +14,11 @@ import {
   type AttackTask
 } from "./systems/CombatSystem";
 import {
+  createFormationTargets,
+  MIN_UNIT_DISTANCE,
+  MovementSystem
+} from "./systems/MovementSystem";
+import {
   canAttackBuildingTarget,
   canAttackUnitTarget,
   canSetRallyPoint,
@@ -55,11 +60,7 @@ import type {
 export const DEFAULT_TICK_RATE = 20;
 
 const DEFAULT_MAP_SIZE = 64;
-const FORMATION_SPACING = 0.72;
 const ARRIVAL_EPSILON = 0.000001;
-const UNIT_RADIUS = 0.26;
-const MIN_UNIT_DISTANCE = UNIT_RADIUS * 2;
-const SEPARATION_ITERATIONS = 2;
 
 interface RuntimeUnit extends UnitState {
   waypoints: Vector2[];
@@ -77,6 +78,7 @@ export class Simulation {
   private nextBuildingSequence = 1;
   private nextUnitSequence = 1;
   private readonly navigation: GridNavigation;
+  private readonly movementSystem: MovementSystem<RuntimeUnit>;
   private readonly units = new Map<string, RuntimeUnit>();
   private readonly resources = new Map<string, ResourceNodeState>();
   private readonly dropOffPoints = new Map<string, DropOffPointState>();
@@ -124,12 +126,13 @@ export class Simulation {
         height: DEFAULT_MAP_SIZE
       }
     );
+    this.movementSystem = new MovementSystem(this.tickRate, this.navigation);
     this.economySystem = new EconomySystem(
       this.tickRate,
       this.resources,
       this.dropOffPoints,
       (playerId) => this.ensureStockpile(playerId),
-      (unit, target) => this.assignPath(unit, target)
+      (unit, target) => this.movementSystem.assignPath(unit, target)
     );
     this.constructionSystem = new ConstructionSystem(
       this.tickRate,
@@ -138,7 +141,7 @@ export class Simulation {
       this.buildingDefinitions,
       this.resources,
       this.units,
-      (unit, target) => this.assignPath(unit, target)
+      (unit, target) => this.movementSystem.assignPath(unit, target)
     );
 
     for (const definition of options.buildingDefinitions ?? []) {
@@ -192,7 +195,7 @@ export class Simulation {
       this.matchState,
       this.navigation,
       (playerId) => this.researchSystem.getAttackDamageBonus(playerId),
-      (unit, target) => this.assignPath(unit, target),
+      (unit, target) => this.movementSystem.assignPath(unit, target),
       (unit, definition, position) =>
         this.constructionSystem.findBuildApproachPosition(
           unit,
@@ -279,7 +282,7 @@ export class Simulation {
 
     this.applyQueuedCommands();
     this.processAi();
-    this.moveUnits();
+    this.movementSystem.moveUnits(this.units.values());
     this.economySystem.step(this.units.values());
     this.constructionSystem.step(this.units.values());
     this.productionSystem.step(this.buildings.values(), {
@@ -291,7 +294,7 @@ export class Simulation {
     });
     this.researchSystem.step(this.buildings.values());
     this.combatSystem.step();
-    this.resolveUnitSeparation();
+    this.movementSystem.resolveUnitSeparation(this.units.values());
     this.tick += 1;
   }
 
@@ -374,7 +377,7 @@ export class Simulation {
 
       const requestedTarget = formationTargets[index] ?? command.target;
 
-      if (!this.assignPath(unit, requestedTarget)) {
+      if (!this.movementSystem.assignPath(unit, requestedTarget)) {
         unit.activity = "idle";
       }
     });
@@ -483,7 +486,7 @@ export class Simulation {
       };
       unit.activity = "moving";
 
-      if (!this.assignPath(unit, target)) {
+      if (!this.movementSystem.assignPath(unit, target)) {
         unit.buildTask = undefined;
         unit.activity = "idle";
       }
@@ -596,55 +599,6 @@ export class Simulation {
         targetDefinition,
         definition
       );
-    }
-  }
-
-  private moveUnits(): void {
-    const maxDistancePerTick = 1 / this.tickRate;
-
-    for (const unit of this.units.values()) {
-      let remainingDistance = unit.speed * maxDistancePerTick;
-
-      while (remainingDistance > ARRIVAL_EPSILON && unit.waypoints.length > 0) {
-        const waypoint = unit.waypoints[0];
-
-        if (!waypoint) {
-          break;
-        }
-
-        const distanceToWaypoint = distance(unit.position, waypoint);
-
-        if (distanceToWaypoint <= ARRIVAL_EPSILON) {
-          unit.position = { ...waypoint };
-          unit.waypoints.shift();
-          continue;
-        }
-
-        if (distanceToWaypoint <= remainingDistance) {
-          unit.position = { ...waypoint };
-          unit.waypoints.shift();
-          remainingDistance -= distanceToWaypoint;
-          continue;
-        }
-
-        const scale = remainingDistance / distanceToWaypoint;
-        unit.position.x += (waypoint.x - unit.position.x) * scale;
-        unit.position.y += (waypoint.y - unit.position.y) * scale;
-        remainingDistance = 0;
-      }
-
-      if (unit.waypoints.length === 0) {
-        unit.destination = null;
-
-        if (
-          !unit.gatherTask &&
-          !unit.buildTask &&
-          !unit.attackTask &&
-          unit.activity === "moving"
-        ) {
-          unit.activity = "idle";
-        }
-      }
     }
   }
 
@@ -1152,7 +1106,7 @@ export class Simulation {
 
     unit.activity = "moving";
 
-    if (!this.assignPath(unit, target)) {
+    if (!this.movementSystem.assignPath(unit, target)) {
       unit.activity = "idle";
     }
   }
@@ -1198,35 +1152,6 @@ export class Simulation {
     }
 
     return null;
-  }
-
-  private assignPath(unit: RuntimeUnit, target: Vector2): boolean {
-    const resolvedTarget = this.navigation.resolveTarget(target);
-
-    if (!resolvedTarget) {
-      unit.destination = null;
-      unit.waypoints = [];
-      return false;
-    }
-
-    const path = this.navigation.findPath(unit.position, resolvedTarget);
-
-    if (path.length === 0) {
-      if (distance(unit.position, resolvedTarget) <= ARRIVAL_EPSILON) {
-        unit.position = { ...resolvedTarget };
-        unit.destination = null;
-        unit.waypoints = [];
-        return true;
-      }
-
-      unit.destination = null;
-      unit.waypoints = [];
-      return false;
-    }
-
-    unit.destination = { ...resolvedTarget };
-    unit.waypoints = path.map((waypoint) => ({ ...waypoint }));
-    return true;
   }
 
   private clearWorkTasks(unit: RuntimeUnit): void {
@@ -1350,110 +1275,7 @@ export class Simulation {
     }
   }
 
-  private resolveUnitSeparation(): void {
-    const units = [...this.units.values()];
 
-    for (let iteration = 0; iteration < SEPARATION_ITERATIONS; iteration += 1) {
-      const buckets = buildSpatialBuckets(units);
-
-      for (let index = 0; index < units.length; index += 1) {
-        const unit = units[index];
-
-        if (!unit) {
-          continue;
-        }
-
-        const cellX = Math.floor(unit.position.x);
-        const cellY = Math.floor(unit.position.y);
-
-        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-          for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-            const bucket = buckets.get(
-              `${cellX + offsetX},${cellY + offsetY}`
-            );
-
-            if (!bucket) {
-              continue;
-            }
-
-            for (const otherIndex of bucket) {
-              if (otherIndex <= index) {
-                continue;
-              }
-
-              const other = units[otherIndex];
-
-              if (!other) {
-                continue;
-              }
-
-              separatePair(unit, other, this.navigation);
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-function buildSpatialBuckets(units: readonly RuntimeUnit[]): Map<string, number[]> {
-  const buckets = new Map<string, number[]>();
-
-  units.forEach((unit, index) => {
-    const key = `${Math.floor(unit.position.x)},${Math.floor(unit.position.y)}`;
-    const bucket = buckets.get(key);
-
-    if (bucket) {
-      bucket.push(index);
-    } else {
-      buckets.set(key, [index]);
-    }
-  });
-
-  return buckets;
-}
-
-function separatePair(
-  a: RuntimeUnit,
-  b: RuntimeUnit,
-  navigation: GridNavigation
-): void {
-  let dx = b.position.x - a.position.x;
-  let dy = b.position.y - a.position.y;
-  let pairDistance = Math.hypot(dx, dy);
-
-  if (pairDistance >= MIN_UNIT_DISTANCE) {
-    return;
-  }
-
-  if (pairDistance <= ARRIVAL_EPSILON) {
-    const direction = a.id < b.id ? -1 : 1;
-    dx = direction;
-    dy = 0;
-    pairDistance = 1;
-  }
-
-  const overlap = MIN_UNIT_DISTANCE - pairDistance;
-  const push = overlap * 0.5;
-  const normalX = dx / pairDistance;
-  const normalY = dy / pairDistance;
-
-  const nextA = {
-    x: a.position.x - normalX * push,
-    y: a.position.y - normalY * push
-  };
-  const nextB = {
-    x: b.position.x + normalX * push,
-    y: b.position.y + normalY * push
-  };
-
-  if (navigation.isWalkablePoint(nextA)) {
-    a.position = nextA;
-  }
-
-  if (navigation.isWalkablePoint(nextB)) {
-    b.position = nextB;
-  }
 }
 
 function buildingFootprintCells(
@@ -1491,30 +1313,6 @@ function spendResources(
   stockpile.wood -= cost.wood;
   stockpile.food -= cost.food;
   stockpile.gold -= cost.gold;
-}
-
-function createFormationTargets(target: Vector2, count: number): Vector2[] {
-  if (count <= 1) {
-    return [{ ...target }];
-  }
-
-  const columns = Math.ceil(Math.sqrt(count));
-  const rows = Math.ceil(count / columns);
-  const width = (columns - 1) * FORMATION_SPACING;
-  const height = (rows - 1) * FORMATION_SPACING;
-  const targets: Vector2[] = [];
-
-  for (let index = 0; index < count; index += 1) {
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-
-    targets.push({
-      x: target.x + column * FORMATION_SPACING - width / 2,
-      y: target.y + row * FORMATION_SPACING - height / 2
-    });
-  }
-
-  return targets;
 }
 
 function cloneUnit(unit: UnitState): UnitState {
