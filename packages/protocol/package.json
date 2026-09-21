@@ -1,0 +1,15 @@
+{
+  "name": "@aeo2/protocol",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}
