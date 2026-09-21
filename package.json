@@ -6,7 +6,8 @@
     "dev": "npm run dev --workspace=@aeo2/game",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "check:boundaries": "node scripts/check-package-boundaries.mjs",
+    "typecheck": "npm run check:boundaries && npm run typecheck --workspaces --if-present"
   },
   "engines": {
     "node": "22.x"
