@@ -554,91 +554,6 @@ export class Simulation {
     }
   }
 
-  private processEconomy(): void {
-    for (const unit of this.units.values()) {
-      const task = unit.gatherTask;
-
-      if (!task || unit.kind !== "villager") {
-        continue;
-      }
-
-      const resource = this.resources.get(task.resourceId);
-
-      if (!resource) {
-        this.stopGatherTask(unit);
-        continue;
-      }
-
-      if (task.phase === "to-resource") {
-        this.processTravelToResource(unit, resource);
-      } else if (task.phase === "gathering") {
-        this.processGathering(unit, resource);
-      } else {
-        this.processReturnToDropOff(unit, resource);
-      }
-    }
-  }
-
-  private processConstruction(): void {
-    for (const unit of this.units.values()) {
-      const task = unit.buildTask;
-
-      if (!task || unit.kind !== "villager") {
-        continue;
-      }
-
-      const building = this.buildings.get(task.buildingId);
-
-      if (!building) {
-        this.stopBuildTask(unit);
-        continue;
-      }
-
-      if (building.completed) {
-        this.stopBuildTask(unit);
-        continue;
-      }
-
-      const definition = this.buildingDefinitions.get(building.kind);
-
-      if (!definition) {
-        this.stopBuildTask(unit);
-        continue;
-      }
-
-      const target = task.target;
-
-      if (distance(unit.position, target) > 0.35) {
-        unit.activity = "moving";
-
-        if (unit.waypoints.length === 0 && !this.assignPath(unit, target)) {
-          this.stopBuildTask(unit);
-        }
-
-        continue;
-      }
-
-      unit.waypoints = [];
-      unit.destination = null;
-      unit.activity = "building";
-
-      building.progress = Math.min(
-        building.progress + 1 / (definition.buildTimeSeconds * this.tickRate),
-        1
-      );
-      building.hitPoints = Math.max(
-        1,
-        Math.round(definition.maxHitPoints * building.progress)
-      );
-
-      if (building.progress >= 1 - ARRIVAL_EPSILON) {
-        building.progress = 1;
-        building.completed = true;
-        building.hitPoints = definition.maxHitPoints;
-      }
-    }
-  }
-
   private processAi(): void {
     for (const ai of this.aiPlayers) {
       const interval = Math.max(1, ai.thinkIntervalTicks ?? this.tickRate);
@@ -1042,7 +957,7 @@ export class Simulation {
       }
 
       if (
-        !this.findBuildApproachPosition(
+        !this.constructionSystem.findBuildApproachPosition(
           builder,
           definition,
           position
@@ -1254,14 +1169,7 @@ export class Simulation {
         continue;
       }
 
-      const definition = this.buildingDefinitions.get(building.kind);
-
-      if (definition) {
-        this.navigation.unblockCells(
-          buildingFootprintCells(building, definition)
-        );
-      }
-
+      this.constructionSystem.releaseBuildingFootprint(building);
       this.buildings.delete(buildingId);
 
       if (building.kind === "town-center") {
@@ -1336,7 +1244,7 @@ export class Simulation {
       return true;
     }
 
-    const approach = this.findBuildApproachPosition(
+    const approach = this.constructionSystem.findBuildApproachPosition(
       unit,
       targetDefinition,
       target.position
@@ -1348,328 +1256,6 @@ export class Simulation {
 
     unit.activity = "attacking";
     return this.assignPath(unit, approach);
-  }
-
-  private processTravelToResource(
-    unit: RuntimeUnit,
-    resource: ResourceNodeState
-  ): void {
-    if (resource.amount <= ARRIVAL_EPSILON) {
-      if (unit.cargo && unit.cargo.amount > ARRIVAL_EPSILON) {
-        this.beginReturnToDropOff(unit, resource.kind);
-      } else {
-        this.stopGatherTask(unit);
-      }
-      return;
-    }
-
-    if (distance(unit.position, resource.position) <= GATHER_RANGE) {
-      unit.waypoints = [];
-      unit.destination = null;
-      unit.activity = "gathering";
-
-      if (unit.gatherTask) {
-        unit.gatherTask.phase = "gathering";
-      }
-      return;
-    }
-
-    if (unit.waypoints.length === 0) {
-      this.routeVillagerToResource(unit, resource);
-    }
-  }
-
-  private processGathering(
-    unit: RuntimeUnit,
-    resource: ResourceNodeState
-  ): void {
-    if (distance(unit.position, resource.position) > GATHER_RANGE * 1.5) {
-      this.routeVillagerToResource(unit, resource);
-      return;
-    }
-
-    const existingCargoAmount =
-      unit.cargo?.kind === resource.kind ? unit.cargo.amount : 0;
-
-    const remainingCapacity = Math.max(
-      VILLAGER_CARRY_CAPACITY - existingCargoAmount,
-      0
-    );
-
-    if (remainingCapacity <= ARRIVAL_EPSILON) {
-      this.beginReturnToDropOff(unit, resource.kind);
-      return;
-    }
-
-    if (resource.amount <= ARRIVAL_EPSILON) {
-      if (existingCargoAmount > ARRIVAL_EPSILON) {
-        this.beginReturnToDropOff(unit, resource.kind);
-      } else {
-        this.stopGatherTask(unit);
-      }
-      return;
-    }
-
-    const gatheredAmount = Math.min(
-      VILLAGER_GATHER_RATE / this.tickRate,
-      resource.amount,
-      remainingCapacity
-    );
-
-    if (gatheredAmount <= ARRIVAL_EPSILON) {
-      return;
-    }
-
-    resource.amount = Math.max(resource.amount - gatheredAmount, 0);
-    unit.cargo = {
-      kind: resource.kind,
-      amount: existingCargoAmount + gatheredAmount
-    };
-
-    if (
-      unit.cargo.amount >= VILLAGER_CARRY_CAPACITY - ARRIVAL_EPSILON ||
-      resource.amount <= ARRIVAL_EPSILON
-    ) {
-      this.beginReturnToDropOff(unit, resource.kind);
-    }
-  }
-
-  private processReturnToDropOff(
-    unit: RuntimeUnit,
-    resource: ResourceNodeState
-  ): void {
-    const task = unit.gatherTask;
-
-    if (!task) {
-      return;
-    }
-
-    const dropOffPoint = task.dropOffPointId
-      ? this.dropOffPoints.get(task.dropOffPointId)
-      : undefined;
-
-    if (!dropOffPoint) {
-      this.beginReturnToDropOff(unit, resource.kind);
-      return;
-    }
-
-    if (distance(unit.position, dropOffPoint.position) > DROP_OFF_RANGE) {
-      if (unit.waypoints.length === 0) {
-        this.assignPath(unit, dropOffPoint.position);
-      }
-      return;
-    }
-
-    if (unit.cargo && unit.cargo.amount > ARRIVAL_EPSILON) {
-      const stockpile = this.ensureStockpile(unit.ownerId);
-      stockpile[unit.cargo.kind] += unit.cargo.amount;
-      unit.cargo = null;
-    }
-
-    task.dropOffPointId = undefined;
-
-    if (resource.amount > ARRIVAL_EPSILON) {
-      task.phase = "to-resource";
-      this.routeVillagerToResource(unit, resource);
-    } else {
-      this.stopGatherTask(unit);
-    }
-  }
-
-  private routeVillagerToResource(
-    unit: RuntimeUnit,
-    resource: ResourceNodeState
-  ): void {
-    const task = unit.gatherTask;
-
-    if (!task) {
-      return;
-    }
-
-    task.phase = "to-resource";
-    task.dropOffPointId = undefined;
-    unit.activity = "moving";
-
-    if (distance(unit.position, resource.position) <= GATHER_RANGE) {
-      unit.waypoints = [];
-      unit.destination = null;
-      task.phase = "gathering";
-      unit.activity = "gathering";
-      return;
-    }
-
-    if (!this.assignPath(unit, resource.position)) {
-      this.stopGatherTask(unit);
-    }
-  }
-
-  private beginReturnToDropOff(
-    unit: RuntimeUnit,
-    resourceKind: ResourceKind
-  ): void {
-    const task = unit.gatherTask;
-
-    if (!task || !unit.cargo || unit.cargo.amount <= ARRIVAL_EPSILON) {
-      this.stopGatherTask(unit);
-      return;
-    }
-
-    const dropOffPoint = this.findNearestDropOffPoint(
-      unit.ownerId,
-      unit.position,
-      resourceKind
-    );
-
-    if (!dropOffPoint) {
-      this.stopGatherTask(unit);
-      return;
-    }
-
-    task.phase = "to-dropoff";
-    task.dropOffPointId = dropOffPoint.id;
-    unit.activity = "returning";
-
-    if (distance(unit.position, dropOffPoint.position) <= DROP_OFF_RANGE) {
-      unit.waypoints = [];
-      unit.destination = null;
-      return;
-    }
-
-    if (!this.assignPath(unit, dropOffPoint.position)) {
-      this.stopGatherTask(unit);
-    }
-  }
-
-  private findNearestDropOffPoint(
-    ownerId: string,
-    position: Vector2,
-    resourceKind: ResourceKind
-  ): DropOffPointState | undefined {
-    return [...this.dropOffPoints.values()]
-      .filter(
-        (point) =>
-          point.ownerId === ownerId &&
-          (!point.accepts || point.accepts.includes(resourceKind))
-      )
-      .sort(
-        (a, b) =>
-          distance(position, a.position) - distance(position, b.position) ||
-          a.id.localeCompare(b.id)
-      )[0];
-  }
-
-  private canPlaceBuilding(
-    definition: BuildingDefinition,
-    position: Vector2
-  ): boolean {
-    for (let y = 0; y < definition.footprint.height; y += 1) {
-      for (let x = 0; x < definition.footprint.width; x += 1) {
-        const cellX = position.x + x;
-        const cellY = position.y + y;
-
-        if (!this.navigation.isWalkableCell(cellX, cellY)) {
-          return false;
-        }
-
-        if (
-          [...this.buildings.values()].some((building) =>
-            this.buildingContainsCell(building, cellX, cellY)
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          [...this.resources.values()].some(
-            (resource) =>
-              Math.floor(resource.position.x) === cellX &&
-              Math.floor(resource.position.y) === cellY &&
-              resource.amount > ARRIVAL_EPSILON
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          [...this.units.values()].some(
-            (unit) =>
-              Math.floor(unit.position.x) === cellX &&
-              Math.floor(unit.position.y) === cellY
-          )
-        ) {
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
-  private buildingContainsCell(
-    building: BuildingState,
-    cellX: number,
-    cellY: number
-  ): boolean {
-    const definition = this.buildingDefinitions.get(building.kind);
-
-    if (!definition) {
-      return false;
-    }
-
-    return (
-      cellX >= building.position.x &&
-      cellY >= building.position.y &&
-      cellX < building.position.x + definition.footprint.width &&
-      cellY < building.position.y + definition.footprint.height
-    );
-  }
-
-  private findBuildApproachPosition(
-    unit: RuntimeUnit,
-    definition: BuildingDefinition,
-    position: Vector2
-  ): Vector2 | null {
-    const candidates: Vector2[] = [];
-
-    for (let x = 0; x < definition.footprint.width; x += 1) {
-      candidates.push(
-        { x: position.x + x + 0.5, y: position.y - 0.5 },
-        {
-          x: position.x + x + 0.5,
-          y: position.y + definition.footprint.height + 0.5
-        }
-      );
-    }
-
-    for (let y = 0; y < definition.footprint.height; y += 1) {
-      candidates.push(
-        { x: position.x - 0.5, y: position.y + y + 0.5 },
-        {
-          x: position.x + definition.footprint.width + 0.5,
-          y: position.y + y + 0.5
-        }
-      );
-    }
-
-    const ordered = candidates
-      .filter((candidate) => this.navigation.isWalkablePoint(candidate))
-      .sort(
-        (a, b) =>
-          distance(unit.position, a) - distance(unit.position, b) ||
-          a.y - b.y ||
-          a.x - b.x
-      );
-
-    for (const candidate of ordered) {
-      if (
-        distance(unit.position, candidate) <= ARRIVAL_EPSILON ||
-        this.navigation.findPath(unit.position, candidate).length > 0
-      ) {
-        return candidate;
-      }
-    }
-
-    return null;
   }
 
   private spawnProducedUnit(
@@ -1792,17 +1378,11 @@ export class Simulation {
   }
 
   private stopGatherTask(unit: RuntimeUnit): void {
-    unit.gatherTask = undefined;
-    unit.waypoints = [];
-    unit.destination = null;
-    unit.activity = "idle";
+    this.economySystem.stopGatherTask(unit);
   }
 
   private stopBuildTask(unit: RuntimeUnit): void {
-    unit.buildTask = undefined;
-    unit.waypoints = [];
-    unit.destination = null;
-    unit.activity = "idle";
+    this.constructionSystem.stopBuildTask(unit);
   }
 
   private stopAttackTask(unit: RuntimeUnit): void {
@@ -2052,24 +1632,6 @@ function separatePair(
   }
 }
 
-function buildingFootprintCells(
-  building: Pick<BuildingState, "position">,
-  definition: BuildingDefinition
-): { x: number; y: number }[] {
-  const cells: { x: number; y: number }[] = [];
-
-  for (let y = 0; y < definition.footprint.height; y += 1) {
-    for (let x = 0; x < definition.footprint.width; x += 1) {
-      cells.push({
-        x: building.position.x + x,
-        y: building.position.y + y
-      });
-    }
-  }
-
-  return cells;
-}
-
 function buildingCenter(
   building: Pick<BuildingState, "position">,
   definition: BuildingDefinition
@@ -2096,15 +1658,6 @@ function distanceToBuilding(
     x: nearestX,
     y: nearestY
   });
-}
-
-function spendResources(
-  stockpile: ResourceStockpile,
-  cost: ResourceStockpile
-): void {
-  stockpile.wood -= cost.wood;
-  stockpile.food -= cost.food;
-  stockpile.gold -= cost.gold;
 }
 
 function createFormationTargets(target: Vector2, count: number): Vector2[] {
