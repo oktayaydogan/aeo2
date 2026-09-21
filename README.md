@@ -97,6 +97,10 @@ packages/
 - **v0.9** Accounts / rating / replay
 - **v1.0** Production release
 
+## Production roadmap
+
+The detailed production roadmap, parallel-development model, milestone gates, acceptance criteria, multiplayer architecture, testing strategy, release requirements, and v1.0 launch checklist are maintained in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 ## Development rules
 
 - TypeScript strict mode
