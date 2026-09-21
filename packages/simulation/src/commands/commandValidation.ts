@@ -148,7 +148,7 @@ export function selectCombatCapableUnits<T extends UnitState>(
   unitIds: readonly string[],
   playerId: string,
   units: ReadonlyMap<string, T>,
-  definitions: ReadonlyMap<string, UnitDefinition>
+  definitions: ReadonlyMap<UnitDefinition["kind"], UnitDefinition>
 ): T[] {
   return selectOwnedUnits(unitIds, playerId, units).filter((unit) => {
     const definition = definitions.get(unit.kind);
