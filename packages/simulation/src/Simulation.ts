@@ -1,4 +1,14 @@
 import { GridNavigation } from "./GridNavigation";
+import {
+  canAttackBuildingTarget,
+  canAttackUnitTarget,
+  canSetRallyPoint,
+  canStartResearch,
+  canStartTraining,
+  selectCombatCapableUnits,
+  selectOwnedUnits,
+  selectOwnedVillagers
+} from "./commands/commandValidation";
 import type {
   AiPlayerDefinition,
   AiPlayerState,
@@ -303,12 +313,11 @@ export class Simulation {
   }
 
   private applyMoveCommand(command: MoveCommand): void {
-    const controllableUnits = command.unitIds
-      .map((unitId) => this.units.get(unitId))
-      .filter(
-        (unit): unit is RuntimeUnit =>
-          unit !== undefined && unit.ownerId === command.playerId
-      );
+    const controllableUnits = selectOwnedUnits(
+      command.unitIds,
+      command.playerId,
+      this.units
+    );
 
     const formationTargets = createFormationTargets(
       command.target,
@@ -334,16 +343,11 @@ export class Simulation {
       return;
     }
 
-    for (const unitId of command.unitIds) {
-      const unit = this.units.get(unitId);
-
-      if (
-        !unit ||
-        unit.ownerId !== command.playerId ||
-        unit.kind !== "villager"
-      ) {
-        continue;
-      }
+    for (const unit of selectOwnedVillagers(
+      command.unitIds,
+      command.playerId,
+      this.units
+    )) {
 
       unit.buildTask = undefined;
       unit.attackTask = undefined;
@@ -381,15 +385,11 @@ export class Simulation {
       return;
     }
 
-    const buildersWithTargets = command.unitIds
-      .map((unitId) => this.units.get(unitId))
-      .filter(
-        (unit): unit is RuntimeUnit =>
-          unit !== undefined &&
-          unit.ownerId === command.playerId &&
-          unit.kind === "villager"
-      )
-      .map((unit) => ({
+    const buildersWithTargets = selectOwnedVillagers(
+      command.unitIds,
+      command.playerId,
+      this.units
+    ).map((unit) => ({
         unit,
         target: this.findBuildApproachPosition(unit, definition, position)
       }))
@@ -449,37 +449,30 @@ export class Simulation {
   private applyTrainCommand(command: TrainCommand): void {
     const building = this.buildings.get(command.buildingId);
     const definition = this.unitDefinitions.get(command.unitKind);
-
-    if (
-      !building ||
-      building.ownerId !== command.playerId ||
-      !building.completed ||
-      !definition ||
-      !this.canBuildingTrainUnit(building.kind, definition.kind) ||
-      (building.researchQueue?.length ?? 0) > 0 ||
-      building.trainingQueue.length >= MAX_TRAINING_QUEUE
-    ) {
-      return;
-    }
-
     const population = this.calculatePopulation(command.playerId);
+    const stockpile =
+      this.stockpiles.get(command.playerId) ??
+      { wood: 0, food: 0, gold: 0 };
 
     if (
-      population.used +
-        population.queued +
-        definition.populationCost >
-      population.cap
+      !canStartTraining({
+        building,
+        definition,
+        playerId: command.playerId,
+        canBuildingTrainUnit: Boolean(
+          building &&
+            definition &&
+            this.canBuildingTrainUnit(building.kind, definition.kind)
+        ),
+        population,
+        stockpile,
+        maxTrainingQueue: MAX_TRAINING_QUEUE
+      })
     ) {
       return;
     }
 
-    const stockpile = this.ensureStockpile(command.playerId);
-
-    if (!hasResources(stockpile, definition.cost)) {
-      return;
-    }
-
-    spendResources(stockpile, definition.cost);
+    spendResources(this.ensureStockpile(command.playerId), definition.cost);
     building.trainingQueue.push({
       unitKind: definition.kind,
       progress: 0
@@ -491,27 +484,26 @@ export class Simulation {
     const definition = this.technologyDefinitions.get(
       command.technologyKind
     );
+    const stockpile =
+      this.stockpiles.get(command.playerId) ??
+      { wood: 0, food: 0, gold: 0 };
 
     if (
-      !building ||
-      building.ownerId !== command.playerId ||
-      !building.completed ||
-      !definition ||
-      building.kind !== definition.buildingKind ||
-      building.trainingQueue.length > 0 ||
-      (building.researchQueue?.length ?? 0) > 0 ||
-      this.hasTechnology(command.playerId, definition.kind)
+      !canStartResearch({
+        building,
+        definition,
+        playerId: command.playerId,
+        alreadyResearched: Boolean(
+          definition &&
+            this.hasTechnology(command.playerId, definition.kind)
+        ),
+        stockpile
+      })
     ) {
       return;
     }
 
-    const stockpile = this.ensureStockpile(command.playerId);
-
-    if (!hasResources(stockpile, definition.cost)) {
-      return;
-    }
-
-    spendResources(stockpile, definition.cost);
+    spendResources(this.ensureStockpile(command.playerId), definition.cost);
     building.researchQueue ??= [];
     building.researchQueue.push({
       technologyKind: definition.kind,
@@ -522,11 +514,7 @@ export class Simulation {
   private applySetRallyPointCommand(command: SetRallyPointCommand): void {
     const building = this.buildings.get(command.buildingId);
 
-    if (
-      !building ||
-      building.ownerId !== command.playerId ||
-      !building.completed
-    ) {
+    if (!canSetRallyPoint(building, command.playerId)) {
       return;
     }
 
@@ -542,22 +530,19 @@ export class Simulation {
   private applyAttackCommand(command: AttackCommand): void {
     const target = this.units.get(command.targetUnitId);
 
-    if (!target || target.ownerId === command.playerId) {
+    if (!canAttackUnitTarget(target, command.playerId)) {
       return;
     }
 
-    for (const unitId of command.unitIds) {
-      const unit = this.units.get(unitId);
-      const definition = unit
-        ? this.unitDefinitions.get(unit.kind)
-        : undefined;
+    for (const unit of selectCombatCapableUnits(
+      command.unitIds,
+      command.playerId,
+      this.units,
+      this.unitDefinitions
+    )) {
+      const definition = this.unitDefinitions.get(unit.kind);
 
-      if (
-        !unit ||
-        unit.ownerId !== command.playerId ||
-        !definition ||
-        definition.attackDamage <= 0
-      ) {
+      if (!definition) {
         continue;
       }
 
@@ -577,11 +562,7 @@ export class Simulation {
   ): void {
     const target = this.buildings.get(command.targetBuildingId);
 
-    if (
-      !target ||
-      target.ownerId === command.playerId ||
-      !target.completed
-    ) {
+    if (!canAttackBuildingTarget(target, command.playerId)) {
       return;
     }
 
@@ -591,18 +572,15 @@ export class Simulation {
       return;
     }
 
-    for (const unitId of command.unitIds) {
-      const unit = this.units.get(unitId);
-      const definition = unit
-        ? this.unitDefinitions.get(unit.kind)
-        : undefined;
+    for (const unit of selectCombatCapableUnits(
+      command.unitIds,
+      command.playerId,
+      this.units,
+      this.unitDefinitions
+    )) {
+      const definition = this.unitDefinitions.get(unit.kind);
 
-      if (
-        !unit ||
-        unit.ownerId !== command.playerId ||
-        !definition ||
-        definition.attackDamage <= 0
-      ) {
+      if (!definition) {
         continue;
       }
 
