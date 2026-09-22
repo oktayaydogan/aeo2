@@ -20,7 +20,7 @@ export function App() {
           <span className="milestone">Phase 2 · Skirmish depth</span>
         </div>
         <div className="controls">
-          WASD pan · wheel zoom · H/B/X build · V/M/P/C train · F research · right-click context · minimap navigation
+          WASD pan · wheel / pinch zoom · H/B/X build · V/M/P/C train · F research · right-click context · minimap navigation
         </div>
       </header>
 

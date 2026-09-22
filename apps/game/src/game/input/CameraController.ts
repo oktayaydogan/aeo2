@@ -1,4 +1,8 @@
 import Phaser from "phaser";
+import {
+  nextCameraZoom,
+  normalizeWheelDelta
+} from "./cameraZoom";
 
 export class CameraController {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -7,6 +11,59 @@ export class CameraController {
     down: Phaser.Input.Keyboard.Key;
     left: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
+  };
+  private configuredCanvas?: HTMLCanvasElement;
+  private destroyed = false;
+
+  private readonly onCanvasWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+
+    const canvas = this.configuredCanvas;
+
+    if (!canvas) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+
+    const camera = this.scene.cameras.main;
+    const deltaY = Phaser.Math.Clamp(
+      normalizeWheelDelta(
+        event.deltaY,
+        event.deltaMode,
+        this.scene.scale.height
+      ),
+      -160,
+      160
+    );
+    const nextZoom = nextCameraZoom(camera.zoom, deltaY);
+
+    if (Math.abs(nextZoom - camera.zoom) <= Number.EPSILON) {
+      return;
+    }
+
+    const screenX =
+      (event.clientX - rect.left) *
+      (this.scene.scale.width / rect.width);
+    const screenY =
+      (event.clientY - rect.top) *
+      (this.scene.scale.height / rect.height);
+    const beforeZoom = camera.getWorldPoint(screenX, screenY);
+
+    camera.setZoom(nextZoom);
+
+    const afterZoom = camera.getWorldPoint(screenX, screenY);
+
+    camera.scrollX += beforeZoom.x - afterZoom.x;
+    camera.scrollY += beforeZoom.y - afterZoom.y;
+  };
+
+  private readonly preventNativeGesture = (event: Event): void => {
+    event.preventDefault();
   };
 
   constructor(private readonly scene: Phaser.Scene) {}
@@ -24,19 +81,36 @@ export class CameraController {
       };
     }
 
-    this.scene.input.on(
-      "wheel",
-      (
-        _pointer: Phaser.Input.Pointer,
-        _currentlyOver: Phaser.GameObjects.GameObject[],
-        _deltaX: number,
-        deltaY: number
-      ) => {
-        const camera = this.scene.cameras.main;
-        camera.setZoom(
-          Phaser.Math.Clamp(camera.zoom - deltaY * 0.001, 0.55, 1.8)
-        );
-      }
+    const canvas = this.scene.game.canvas;
+    this.configuredCanvas = canvas;
+    this.destroyed = false;
+
+    canvas.style.touchAction = "none";
+    canvas.style.overscrollBehavior = "none";
+
+    canvas.addEventListener("wheel", this.onCanvasWheel, {
+      passive: false
+    });
+    canvas.addEventListener(
+      "gesturestart",
+      this.preventNativeGesture,
+      { passive: false }
+    );
+    canvas.addEventListener(
+      "gesturechange",
+      this.preventNativeGesture,
+      { passive: false }
+    );
+
+    this.scene.events.once(
+      Phaser.Scenes.Events.SHUTDOWN,
+      this.destroy,
+      this
+    );
+    this.scene.events.once(
+      Phaser.Scenes.Events.DESTROY,
+      this.destroy,
+      this
     );
   }
 
@@ -56,5 +130,31 @@ export class CameraController {
     if (this.wasd?.right.isDown || this.cursors?.right.isDown) {
       camera.scrollX += speed;
     }
+  }
+
+  destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
+
+    this.destroyed = true;
+
+    const canvas = this.configuredCanvas;
+
+    if (!canvas) {
+      return;
+    }
+
+    canvas.removeEventListener("wheel", this.onCanvasWheel);
+    canvas.removeEventListener(
+      "gesturestart",
+      this.preventNativeGesture
+    );
+    canvas.removeEventListener(
+      "gesturechange",
+      this.preventNativeGesture
+    );
+
+    this.configuredCanvas = undefined;
   }
 }
