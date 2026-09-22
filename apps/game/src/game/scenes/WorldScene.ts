@@ -24,6 +24,8 @@ import { CameraController } from "../input/CameraController";
 import { CommandController } from "../input/CommandController";
 import { HotkeyController } from "../input/HotkeyController";
 import { SelectionController } from "../input/SelectionController";
+import { HudAdapter } from "../adapters/HudAdapter";
+import { MinimapAdapter } from "../adapters/MinimapAdapter";
 import {
   DEFAULT_BENCHMARK_BUDGET,
   summarizeBenchmark,
@@ -31,7 +33,6 @@ import {
 } from "../benchmark";
 import { PROTOTYPE_MAP } from "../prototypeMap";
 import { createSkirmishSetup } from "../skirmishMap";
-import { getHudCommandAvailability } from "../hudState";
 import { createPrototypeTextures } from "../prototypeTextures";
 import { BuildingRenderer } from "../renderers/BuildingRenderer";
 import { FogRenderer } from "../renderers/FogRenderer";
@@ -91,20 +92,6 @@ const ACTIVE_BLOCKED_CELL_KEYS = new Set(
   )
 );
 
-
-interface HudButton {
-  background: Phaser.GameObjects.Rectangle;
-  label: Phaser.GameObjects.Text;
-  command:
-    | "house"
-    | "barracks"
-    | "archery-range"
-    | "villager"
-    | "militia"
-    | "spearman"
-    | "archer"
-    | "forged-weapons";
-}
 
 export class WorldScene extends Phaser.Scene {
   private readonly simulation = new Simulation({
@@ -236,16 +223,9 @@ export class WorldScene extends Phaser.Scene {
   private unitRenderer?: UnitRenderer;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private placementGraphics?: Phaser.GameObjects.Graphics;
-  private minimapGraphics?: Phaser.GameObjects.Graphics;
-  private minimapHitArea?: Phaser.GameObjects.Rectangle;
-  private hudGraphics?: Phaser.GameObjects.Graphics;
+  private hudAdapter?: HudAdapter;
+  private minimapAdapter?: MinimapAdapter;
   private metricsText?: Phaser.GameObjects.Text;
-  private economyText?: Phaser.GameObjects.Text;
-  private selectionTitleText?: Phaser.GameObjects.Text;
-  private selectionDetailsText?: Phaser.GameObjects.Text;
-  private objectiveText?: Phaser.GameObjects.Text;
-  private matchText?: Phaser.GameObjects.Text;
-  private readonly hudButtons: HudButton[] = [];
   private placementKind?: BuildingKind;
   private selectedBuildingId?: string;
 
@@ -297,68 +277,27 @@ export class WorldScene extends Phaser.Scene {
       .graphics()
       .setDepth(90_000);
 
-    this.minimapGraphics = this.add
-      .graphics()
-      .setScrollFactor(0)
-      .setDepth(100_002);
+    this.minimapAdapter = new MinimapAdapter({
+      scene: this,
+      projection: this.projection,
+      fogRenderer: this.fogRenderer,
+      mapSize: MAP_SIZE,
+      size: MINIMAP_SIZE,
+      margin: MINIMAP_MARGIN,
+      benchmarkMode: BENCHMARK_MODE
+    });
 
-    this.minimapHitArea = this.add
-      .rectangle(0, 0, MINIMAP_SIZE, MINIMAP_SIZE, 0x000000, 0.001)
-      .setScrollFactor(0)
-      .setDepth(100_003)
-      .setInteractive({ useHandCursor: true });
-
-    this.minimapHitArea.on(
-      "pointerdown",
-      (pointer: Phaser.Input.Pointer) => this.centerCameraFromMinimap(pointer)
-    );
-
-    this.hudGraphics = this.add
-      .graphics()
-      .setScrollFactor(0)
-      .setDepth(100_000);
-
-    this.economyText = this.add
-      .text(18, 14, "", {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: "15px",
-        fontStyle: "bold",
-        color: "#f5ead0"
-      })
-      .setScrollFactor(0)
-      .setDepth(100_004);
-
-    this.objectiveText = this.add
-      .text(this.scale.width / 2, 16, "Destroy the enemy Town Center", {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: "13px",
-        color: "#d9cfae"
-      })
-      .setOrigin(0.5, 0)
-      .setScrollFactor(0)
-      .setDepth(100_004);
-
-    this.selectionTitleText = this.add
-      .text(24, this.scale.height - 108, "No selection", {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: "18px",
-        fontStyle: "bold",
-        color: "#f5ead0"
-      })
-      .setScrollFactor(0)
-      .setDepth(100_004);
-
-    this.selectionDetailsText = this.add
-      .text(24, this.scale.height - 78, "", {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: "13px",
-        color: "#b9c5cc",
-        lineSpacing: 4
-      })
-      .setScrollFactor(0)
-      .setDepth(100_004);
-
-    this.createHudButtons();
+    this.hudAdapter = new HudAdapter({
+      scene: this,
+      benchmarkMode: BENCHMARK_MODE,
+      skirmishSeed: SKIRMISH_SEED,
+      selectedUnitIds: this.selectedUnitIds,
+      getSelectedBuildingId: () => this.selectedBuildingId,
+      setPlacementMode: (kind) => this.setPlacementMode(kind),
+      issueTrain: (unitKind) => this.issueTrainCommand(unitKind),
+      issueResearch: (technologyKind) =>
+        this.issueResearchCommand(technologyKind)
+    });
 
     this.metricsText = this.add
       .text(14, 54, "", {
@@ -372,20 +311,6 @@ export class WorldScene extends Phaser.Scene {
       .setDepth(100_001)
       .setVisible(BENCHMARK_MODE);
 
-    this.matchText = this.add
-      .text(this.scale.width / 2, this.scale.height / 2, "", {
-        fontFamily: "monospace",
-        fontSize: "34px",
-        color: "#fff6d5",
-        backgroundColor: "#081016ee",
-        align: "center",
-        padding: { x: 24, y: 18 }
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(200_000)
-      .setVisible(false);
-
     this.configureInput();
 
     this.cameras.main.setZoom(1);
@@ -393,8 +318,8 @@ export class WorldScene extends Phaser.Scene {
 
     this.updateVisibility(FOG_UPDATE_INTERVAL_MS, initialSnapshot);
     this.renderSnapshot(initialSnapshot);
-    this.renderMinimap(initialSnapshot);
-    this.updateHud(initialSnapshot);
+    this.minimapAdapter.render(initialSnapshot);
+    this.hudAdapter.update(initialSnapshot);
   }
 
   override update(_time: number, delta: number): void {
@@ -417,11 +342,11 @@ export class WorldScene extends Phaser.Scene {
     this.updateBenchmark(delta, snapshot);
     this.updateVisibility(delta, snapshot);
     this.renderSnapshot(snapshot);
-    this.renderMinimap(snapshot);
+    this.minimapAdapter?.render(snapshot);
     this.updateMetrics(delta, snapshot);
-    this.layoutHud(snapshot);
-    this.updateHud(snapshot);
-    this.updateMatchOverlay(snapshot);
+    this.hudAdapter?.layout(snapshot);
+    this.hudAdapter?.update(snapshot);
+    this.hudAdapter?.updateMatchOverlay(snapshot);
   }
 
   private drawMap(): void {
@@ -461,141 +386,6 @@ export class WorldScene extends Phaser.Scene {
           graphics.strokePath();
         }
       }
-    }
-  }
-
-  private createHudButtons(): void {
-    const commands: HudButton["command"][] = [
-      "house",
-      "barracks",
-      "archery-range",
-      "villager",
-      "militia",
-      "spearman",
-      "archer",
-      "forged-weapons"
-    ];
-
-    for (const command of commands) {
-      const background = this.add
-        .rectangle(0, 0, 108, 54, 0x18242c, 0.96)
-        .setScrollFactor(0)
-        .setDepth(100_004)
-        .setStrokeStyle(1, 0x60717b, 0.8)
-        .setInteractive({ useHandCursor: true });
-
-      const label = this.add
-        .text(0, 0, "", {
-          fontFamily: "Inter, Arial, sans-serif",
-          fontSize: "12px",
-          align: "center",
-          color: "#f4ead1"
-        })
-        .setOrigin(0.5)
-        .setScrollFactor(0)
-        .setDepth(100_005);
-
-      background.on("pointerdown", () => {
-        if (
-          command === "house" ||
-          command === "barracks" ||
-          command === "archery-range"
-        ) {
-          this.setPlacementMode(command);
-          return;
-        }
-
-        if (command === "forged-weapons") {
-          this.issueResearchCommand(command);
-          return;
-        }
-
-        this.issueTrainCommand(command);
-      });
-
-      this.hudButtons.push({
-        background,
-        label,
-        command
-      });
-    }
-  }
-
-  private layoutHud(snapshot: SimulationSnapshot): void {
-    const graphics = this.hudGraphics;
-
-    if (!graphics) {
-      return;
-    }
-
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const panelHeight = 126;
-
-    graphics.clear();
-
-    if (BENCHMARK_MODE) {
-      this.economyText?.setVisible(false);
-      this.objectiveText?.setVisible(false);
-      this.selectionTitleText?.setVisible(false);
-      this.selectionDetailsText?.setVisible(false);
-
-      for (const button of this.hudButtons) {
-        button.background.setVisible(false);
-        button.label.setVisible(false);
-      }
-
-      return;
-    }
-
-    this.economyText?.setVisible(true);
-    this.objectiveText?.setVisible(true);
-    this.selectionTitleText?.setVisible(true);
-    this.selectionDetailsText?.setVisible(true);
-    graphics.fillStyle(0x081016, 0.9);
-    graphics.fillRect(0, 0, width, 44);
-    graphics.lineStyle(1, 0x52636d, 0.45);
-    graphics.lineBetween(0, 44, width, 44);
-
-    graphics.fillStyle(0x081016, 0.94);
-    graphics.fillRect(0, height - panelHeight, width, panelHeight);
-    graphics.lineStyle(1, 0x52636d, 0.55);
-    graphics.lineBetween(0, height - panelHeight, width, height - panelHeight);
-
-    this.objectiveText?.setPosition(width / 2, 14);
-    this.selectionTitleText?.setPosition(24, height - 108);
-    this.selectionDetailsText?.setPosition(24, height - 78);
-
-    const buttonStartX = Math.max(350, width - 480);
-    const firstRowY = height - 92;
-
-    this.hudButtons.forEach((button, index) => {
-      const column = index % 4;
-      const row = Math.floor(index / 4);
-      const x = buttonStartX + column * 116;
-      const y = firstRowY + row * 58;
-      button.background.setPosition(x, y);
-      button.label.setPosition(x, y);
-    });
-
-    if (snapshot.match.status === "ended") {
-      for (const button of this.hudButtons) {
-        this.setHudButtonEnabled(button, false);
-      }
-    }
-  }
-
-  private setHudButtonEnabled(button: HudButton, enabled: boolean): void {
-    button.background
-      .setAlpha(enabled ? 1 : 0.35)
-      .setFillStyle(enabled ? 0x18242c : 0x11181d, 0.96);
-
-    button.label.setAlpha(enabled ? 1 : 0.45);
-
-    if (enabled) {
-      button.background.setInteractive({ useHandCursor: true });
-    } else {
-      button.background.disableInteractive();
     }
   }
 
@@ -917,174 +707,6 @@ export class WorldScene extends Phaser.Scene {
     this.fogRenderer?.update(delta, snapshot);
   }
 
-  private renderMinimap(snapshot: SimulationSnapshot): void {
-    const graphics = this.minimapGraphics;
-    const hitArea = this.minimapHitArea;
-
-    if (!graphics || !hitArea || BENCHMARK_MODE) {
-      graphics?.clear();
-      hitArea?.setVisible(false);
-      return;
-    }
-
-    hitArea.setVisible(true);
-
-    const originX = this.minimapOriginX();
-    const originY = MINIMAP_MARGIN;
-    const cellSize = MINIMAP_SIZE / MAP_SIZE;
-
-    hitArea.setPosition(
-      originX + MINIMAP_SIZE / 2,
-      originY + MINIMAP_SIZE / 2
-    );
-
-    graphics.clear();
-    graphics.fillStyle(0x091017, 0.94);
-    graphics.fillRect(
-      originX - 4,
-      originY - 4,
-      MINIMAP_SIZE + 8,
-      MINIMAP_SIZE + 8
-    );
-
-    for (let y = 0; y < MAP_SIZE; y += 1) {
-      for (let x = 0; x < MAP_SIZE; x += 1) {
-        const state = this.fogRenderer?.stateAtCell(x, y) ?? "unexplored";
-
-        graphics.fillStyle(
-          state === "unexplored"
-            ? 0x050709
-            : state === "explored"
-              ? 0x26372f
-              : 0x3f6250,
-          1
-        );
-        graphics.fillRect(
-          originX + x * cellSize,
-          originY + y * cellSize,
-          Math.ceil(cellSize),
-          Math.ceil(cellSize)
-        );
-      }
-    }
-
-    for (const resource of snapshot.resources) {
-      if (
-        (this.fogRenderer?.stateAtPoint(
-          resource.position.x,
-          resource.position.y
-        ) ?? "unexplored") === "unexplored"
-      ) {
-        continue;
-      }
-
-      graphics.fillStyle(resourceColor(resource.kind), 1);
-      graphics.fillCircle(
-        originX + (resource.position.x / MAP_SIZE) * MINIMAP_SIZE,
-        originY + (resource.position.y / MAP_SIZE) * MINIMAP_SIZE,
-        2
-      );
-    }
-
-    for (const building of snapshot.buildings) {
-      if (
-        building.ownerId !== "player-1" &&
-        !this.fogRenderer?.isVisiblePoint(
-          building.position.x,
-          building.position.y
-        )
-      ) {
-        continue;
-      }
-
-      graphics.fillStyle(
-        building.ownerId === "player-1" ? 0xe1ca78 : 0xc7655c,
-        1
-      );
-      graphics.fillRect(
-        originX + (building.position.x / MAP_SIZE) * MINIMAP_SIZE - 2,
-        originY + (building.position.y / MAP_SIZE) * MINIMAP_SIZE - 2,
-        5,
-        5
-      );
-    }
-
-    for (const unit of snapshot.units) {
-      const visible =
-        unit.ownerId === "player-1" ||
-        this.fogRenderer?.isVisiblePoint(unit.position.x, unit.position.y);
-
-      if (!visible) {
-        continue;
-      }
-
-      graphics.fillStyle(
-        unit.ownerId === "player-1" ? 0xf0dc83 : 0xd66d63,
-        1
-      );
-      graphics.fillCircle(
-        originX + (unit.position.x / MAP_SIZE) * MINIMAP_SIZE,
-        originY + (unit.position.y / MAP_SIZE) * MINIMAP_SIZE,
-        1.8
-      );
-    }
-
-    const cameraGrid = screenToGrid(
-      {
-        x: this.cameras.main.midPoint.x,
-        y: this.cameras.main.midPoint.y
-      },
-      this.projection
-    );
-
-    graphics.lineStyle(1, 0xffffff, 0.9);
-    graphics.strokeRect(
-      originX +
-        (Phaser.Math.Clamp(cameraGrid.x, 0, MAP_SIZE) / MAP_SIZE) *
-          MINIMAP_SIZE -
-        7,
-      originY +
-        (Phaser.Math.Clamp(cameraGrid.y, 0, MAP_SIZE) / MAP_SIZE) *
-          MINIMAP_SIZE -
-        5,
-      14,
-      10
-    );
-  }
-
-  private centerCameraFromMinimap(pointer: Phaser.Input.Pointer): void {
-    if (BENCHMARK_MODE) {
-      return;
-    }
-
-    const originX = this.minimapOriginX();
-    const localX = Phaser.Math.Clamp(
-      pointer.x - originX,
-      0,
-      MINIMAP_SIZE
-    );
-    const localY = Phaser.Math.Clamp(
-      pointer.y - MINIMAP_MARGIN,
-      0,
-      MINIMAP_SIZE
-    );
-
-    const mapPoint = {
-      x: (localX / MINIMAP_SIZE) * MAP_SIZE,
-      y: (localY / MINIMAP_SIZE) * MAP_SIZE
-    };
-    const worldPoint = gridToScreen(mapPoint, this.projection);
-
-    this.cameras.main.centerOn(worldPoint.x, worldPoint.y);
-  }
-
-  private minimapOriginX(): number {
-    return Math.max(
-      MINIMAP_MARGIN,
-      this.scale.width - MINIMAP_SIZE - MINIMAP_MARGIN
-    );
-  }
-
   private updateBenchmark(
     delta: number,
     snapshot: SimulationSnapshot
@@ -1195,183 +817,6 @@ export class WorldScene extends Phaser.Scene {
         ? "fog: disabled"
         : `vision: ${(this.fogRenderer?.visibleCellCount() ?? 0)} · explored: ${(this.fogRenderer?.exploredCellCount() ?? 0)}/${MAP_SIZE * MAP_SIZE}`
     ]);
-  }
-
-  private updateHud(snapshot: SimulationSnapshot): void {
-    if (!this.economyText) {
-      return;
-    }
-
-    const stockpile = snapshot.stockpiles.find(
-      (entry) => entry.playerId === "player-1"
-    );
-    const population = snapshot.population.find(
-      (entry) => entry.playerId === "player-1"
-    );
-    const selectedUnits = snapshot.units.filter((unit) =>
-      this.selectedUnitIds.has(unit.id)
-    );
-    const selectedBuilding = snapshot.buildings.find(
-      (building) => building.id === this.selectedBuildingId
-    );
-    const playerTechnologies =
-      snapshot.technologies.find(
-        (entry) => entry.playerId === "player-1"
-      )?.researched ?? [];
-
-    this.economyText.setText(
-      `WOOD  ${Math.floor(stockpile?.resources.wood ?? 0)}     FOOD  ${Math.floor(
-        stockpile?.resources.food ?? 0
-      )}     GOLD  ${Math.floor(
-        stockpile?.resources.gold ?? 0
-      )}     POP  ${population?.used ?? 0}/${population?.cap ?? 0}${
-        population?.queued ? ` (+${population.queued})` : ""
-      }`
-    );
-
-    if (selectedBuilding) {
-      const definition = BUILDING_DEFINITIONS.find(
-        (entry) => entry.kind === selectedBuilding.kind
-      );
-      const trainingQueue =
-        selectedBuilding.trainingQueue.length > 0
-          ? selectedBuilding.trainingQueue
-              .map(
-                (item, index) =>
-                  `${index + 1}. ${item.unitKind} ${Math.round(
-                    item.progress * 100
-                  )}%`
-              )
-              .join("   ")
-          : "Queue empty";
-      const researchItem = selectedBuilding.researchQueue?.[0];
-      const researchQueue = researchItem
-        ? `Research ${researchItem.technologyKind} ${Math.round(
-            researchItem.progress * 100
-          )}%`
-        : playerTechnologies.length > 0
-          ? `Tech ${playerTechnologies.join(", ")}`
-          : "No research";
-
-      this.selectionTitleText?.setText(
-        definition?.displayName ?? selectedBuilding.kind
-      );
-      this.selectionDetailsText?.setText([
-        `HP ${Math.ceil(selectedBuilding.hitPoints)}/${
-          definition?.maxHitPoints ?? selectedBuilding.hitPoints
-        }`,
-        trainingQueue,
-        researchQueue,
-        selectedBuilding.rallyPoint
-          ? `Rally ${selectedBuilding.rallyPoint.x.toFixed(
-              1
-            )}, ${selectedBuilding.rallyPoint.y.toFixed(1)}`
-          : "Right-click ground to set rally"
-      ]);
-    } else if (selectedUnits.length > 0) {
-      const primary = selectedUnits[0];
-      const sameKind = selectedUnits.every(
-        (unit) => unit.kind === primary?.kind
-      );
-      const label = sameKind
-        ? UNIT_DEFINITIONS.find((entry) => entry.kind === primary?.kind)
-            ?.displayName ?? primary?.kind ?? "Units"
-        : "Mixed units";
-      const averageHp =
-        selectedUnits.reduce((sum, unit) => sum + unit.hitPoints, 0) /
-        selectedUnits.length;
-      const carrying = selectedUnits.reduce(
-        (sum, unit) => sum + (unit.cargo?.amount ?? 0),
-        0
-      );
-
-      this.selectionTitleText?.setText(
-        selectedUnits.length === 1
-          ? label
-          : `${selectedUnits.length} × ${label}`
-      );
-      this.selectionDetailsText?.setText([
-        `Average HP ${averageHp.toFixed(0)}`,
-        `Activity ${primary?.activity ?? "idle"}`,
-        carrying > 0 ? `Carrying ${carrying.toFixed(1)}` : "Ready"
-      ]);
-    } else {
-      this.selectionTitleText?.setText("No selection");
-      this.selectionDetailsText?.setText([
-        "Select villagers to gather or build.",
-        "Select a production building to train units."
-      ]);
-    }
-
-    const availability = getHudCommandAvailability({
-      selectedUnitKinds: selectedUnits.map((unit) => unit.kind),
-      selectedBuildingKind: selectedBuilding?.kind,
-      selectedBuildingCompleted: selectedBuilding?.completed,
-      selectedBuildingResearchBusy:
-        (selectedBuilding?.researchQueue?.length ?? 0) > 0,
-      researchedTechnologies: playerTechnologies,
-      resources: {
-        wood: stockpile?.resources.wood ?? 0,
-        food: stockpile?.resources.food ?? 0,
-        gold: stockpile?.resources.gold ?? 0
-      },
-      populationUsed: population?.used ?? 0,
-      populationQueued: population?.queued ?? 0,
-      populationCap: population?.cap ?? 0,
-      matchEnded: snapshot.match.status === "ended"
-    });
-
-    const buttonLabels: Record<HudButton["command"], string> = {
-      house: "HOUSE\n25 Wood   [H]",
-      barracks: "BARRACKS\n75 Wood   [B]",
-      "archery-range": "ARCHERY RANGE\n100 Wood   [X]",
-      villager: "VILLAGER\n50 Food   [V]",
-      militia: "MILITIA\n60 Food · 20 Gold   [M]",
-      spearman: "SPEARMAN\n25 Wood · 45 Food   [P]",
-      archer: "ARCHER\n25 Wood · 45 Gold   [C]",
-      "forged-weapons": "FORGED WEAPONS\n75 Food · 75 Gold   [F]"
-    };
-
-    for (const button of this.hudButtons) {
-      button.label.setText(buttonLabels[button.command]);
-      button.background.setVisible(!BENCHMARK_MODE);
-      button.label.setVisible(!BENCHMARK_MODE);
-      this.setHudButtonEnabled(
-        button,
-        !BENCHMARK_MODE && availability[button.command]
-      );
-    }
-
-    this.objectiveText?.setText(
-      snapshot.match.status === "ended"
-        ? "Match complete"
-        : `Objective · Destroy the enemy Town Center · Seed ${SKIRMISH_SEED}`
-    );
-  }
-
-  private updateMatchOverlay(snapshot: SimulationSnapshot): void {
-    if (!this.matchText) {
-      return;
-    }
-
-    if (snapshot.match.status !== "ended") {
-      this.matchText.setVisible(false);
-      return;
-    }
-
-    const victory = snapshot.match.winnerPlayerId === "player-1";
-
-    this.matchText
-      .setPosition(this.scale.width / 2, this.scale.height / 2)
-      .setText([
-        victory ? "VICTORY" : "DEFEAT",
-        victory
-          ? "Enemy Town Center destroyed"
-          : "Your Town Center was destroyed",
-        "",
-        "Press R to restart"
-      ])
-      .setVisible(true);
   }
 
   private renderSnapshot(snapshot: SimulationSnapshot): void {
@@ -1543,17 +988,5 @@ function unitColor(unit: UnitState): number {
   }
 
   return unit.kind === "militia" ? 0x8fb3cf : 0xd9c56c;
-}
-
-function resourceColor(kind: ResourceNodeState["kind"]): number {
-  if (kind === "wood") {
-    return 0x4f7d4a;
-  }
-
-  if (kind === "food") {
-    return 0xa94f72;
-  }
-
-  return 0xd1ad3c;
 }
 
