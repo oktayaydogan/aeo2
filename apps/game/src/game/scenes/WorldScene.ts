@@ -22,6 +22,7 @@ import {
 } from "../isometric";
 import { CameraController } from "../input/CameraController";
 import { CommandController } from "../input/CommandController";
+import { ControlGroupManager } from "../input/controlGroups";
 import { HotkeyController } from "../input/HotkeyController";
 import { SelectionController } from "../input/SelectionController";
 import { HudAdapter } from "../adapters/HudAdapter";
@@ -203,6 +204,7 @@ export class WorldScene extends Phaser.Scene {
   };
 
   private readonly selectedUnitIds = new Set<string>();
+  private readonly controlGroups = new ControlGroupManager();
 
   private accumulatorMs = 0;
   private metricsElapsedMs = 0;
@@ -453,6 +455,8 @@ export class WorldScene extends Phaser.Scene {
       researchForgedWeapons: () =>
         this.issueResearchCommand("forged-weapons"),
       stopSelectedUnits: () => this.issueStopCommand(),
+      assignControlGroup: (slot) => this.assignControlGroup(slot),
+      recallControlGroup: (slot) => this.recallControlGroup(slot),
       restartEndedMatch: () => {
         if (this.simulation.getSnapshot().match.status === "ended") {
           window.location.reload();
@@ -701,6 +705,98 @@ export class WorldScene extends Phaser.Scene {
       }
     });
     return true;
+  }
+
+  private assignControlGroup(slot: number): void {
+    this.controlGroups.assign(slot, {
+      unitIds: [...this.selectedUnitIds],
+      buildingId: this.selectedBuildingId
+    });
+  }
+
+  private recallControlGroup(slot: number): void {
+    const snapshot = this.simulation.getSnapshot();
+    const recalled = this.controlGroups.recall(
+      slot,
+      snapshot,
+      this.time.now
+    );
+
+    if (!recalled) {
+      return;
+    }
+
+    this.setPlacementMode(undefined);
+    this.selectedUnitIds.clear();
+    this.selectedBuildingId = undefined;
+
+    if (recalled.unitIds.length > 0) {
+      for (const unitId of recalled.unitIds) {
+        this.selectedUnitIds.add(unitId);
+      }
+    } else if (recalled.buildingId) {
+      this.selectedBuildingId = recalled.buildingId;
+    }
+
+    if (recalled.shouldCenter) {
+      this.centerCameraOnControlGroup(recalled.unitIds, recalled.buildingId);
+    }
+  }
+
+  private centerCameraOnControlGroup(
+    unitIds: readonly string[],
+    buildingId?: string
+  ): void {
+    const snapshot = this.simulation.getSnapshot();
+    const points = snapshot.units
+      .filter((unit) => unitIds.includes(unit.id))
+      .map((unit) => unit.position);
+
+    if (points.length === 0 && buildingId) {
+      const building = snapshot.buildings.find(
+        (entry) => entry.id === buildingId
+      );
+
+      if (building) {
+        const definition = BUILDING_DEFINITIONS.find(
+          (entry) => entry.kind === building.kind
+        );
+
+        points.push({
+          x:
+            building.position.x +
+            (definition?.footprint.width ?? 1) / 2,
+          y:
+            building.position.y +
+            (definition?.footprint.height ?? 1) / 2
+        });
+      }
+    }
+
+    if (points.length === 0) {
+      return;
+    }
+
+    const center = points.reduce(
+      (sum, point) => ({
+        x: sum.x + point.x,
+        y: sum.y + point.y
+      }),
+      { x: 0, y: 0 }
+    );
+    center.x = Phaser.Math.Clamp(
+      center.x / points.length,
+      0,
+      MAP_SIZE - 0.01
+    );
+    center.y = Phaser.Math.Clamp(
+      center.y / points.length,
+      0,
+      MAP_SIZE - 0.01
+    );
+
+    const worldPoint = gridToScreen(center, this.projection);
+    this.cameras.main.centerOn(worldPoint.x, worldPoint.y);
   }
 
   private issueStopCommand(): void {
