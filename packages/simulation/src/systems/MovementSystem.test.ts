@@ -205,6 +205,28 @@ describe("MovementSystem", () => {
     expect(moving.destination).toBeNull();
   });
 
+  it("does not separation-displace an engaged attacker from its target", () => {
+    const attacker = createUnit("attacker", { x: 4, y: 4 });
+    const target = createUnit("target", { x: 4.2, y: 4 });
+    attacker.attackTask = {
+      targetType: "unit",
+      targetId: target.id
+    };
+    attacker.activity = "attacking";
+
+    const system = new MovementSystem(
+      20,
+      new GridNavigation({ width: 10, height: 10 })
+    );
+    const beforeAttacker = { ...attacker.position };
+    const beforeTarget = { ...target.position };
+
+    system.resolveUnitSeparation([attacker, target]);
+
+    expect(attacker.position).toEqual(beforeAttacker);
+    expect(target.position).toEqual(beforeTarget);
+  });
+
   it("assigns navigation paths and clears destination on an unreachable target", () => {
     const unit = createUnit("unit-1", { x: 1.5, y: 1.5 });
     const navigation = new GridNavigation({

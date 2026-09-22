@@ -261,7 +261,12 @@ function separatePair<TUnit extends MovementUnit>(
   // meet head-on or squeeze through the same narrow route. Let moving units
   // pass through each other and resolve any remaining overlap once both have
   // finished their current path.
-  if (a.waypoints.length > 0 || b.waypoints.length > 0) {
+  if (
+    a.waypoints.length > 0 ||
+    b.waypoints.length > 0 ||
+    a.attackTask ||
+    b.attackTask
+  ) {
     return;
   }
 
