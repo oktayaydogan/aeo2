@@ -49,6 +49,17 @@ export interface CargoState {
   amount: number;
 }
 
+export type UnitOrderType =
+  | "move"
+  | "gather"
+  | "build"
+  | "attack"
+  | "attack-building";
+
+export interface UnitOrderState {
+  type: UnitOrderType;
+}
+
 export interface UnitState {
   id: string;
   ownerId: string;
@@ -59,6 +70,7 @@ export interface UnitState {
   hitPoints: number;
   activity: UnitActivity;
   cargo: CargoState | null;
+  orderQueue?: readonly UnitOrderState[];
 }
 
 export interface ResourceNodeState {

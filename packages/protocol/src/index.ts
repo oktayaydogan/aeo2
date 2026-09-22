@@ -13,11 +13,14 @@ export interface Vector2 {
   y: number;
 }
 
+export type UnitOrderQueueMode = "replace" | "append";
+
 export interface MoveCommand {
   type: "move";
   playerId: PlayerId;
   unitIds: readonly string[];
   target: Vector2;
+  queueMode?: UnitOrderQueueMode;
 }
 
 export interface GatherCommand {
@@ -25,6 +28,7 @@ export interface GatherCommand {
   playerId: PlayerId;
   unitIds: readonly string[];
   resourceId: string;
+  queueMode?: UnitOrderQueueMode;
 }
 
 export interface BuildCommand<TBuildingKind extends string = string> {
@@ -33,6 +37,7 @@ export interface BuildCommand<TBuildingKind extends string = string> {
   unitIds: readonly string[];
   buildingKind: TBuildingKind;
   position: Vector2;
+  queueMode?: UnitOrderQueueMode;
 }
 
 export interface TrainCommand<TUnitKind extends string = string> {
@@ -61,6 +66,7 @@ export interface AttackCommand {
   playerId: PlayerId;
   unitIds: readonly string[];
   targetUnitId: string;
+  queueMode?: UnitOrderQueueMode;
 }
 
 export interface AttackBuildingCommand {
@@ -68,6 +74,7 @@ export interface AttackBuildingCommand {
   playerId: PlayerId;
   unitIds: readonly string[];
   targetBuildingId: string;
+  queueMode?: UnitOrderQueueMode;
 }
 
 export type GameCommand<
