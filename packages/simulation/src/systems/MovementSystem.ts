@@ -6,6 +6,9 @@ const FORMATION_SPACING = 0.72;
 const UNIT_RADIUS = 0.26;
 export const MIN_UNIT_DISTANCE = UNIT_RADIUS * 2;
 const SEPARATION_ITERATIONS = 2;
+const RECOVERY_RETRY_INTERVAL_TICKS = 8;
+const RECOVERY_RETRY_ATTEMPTS = 3;
+const RECOVERY_STAGGER_BUCKETS = 4;
 
 export interface MovementUnit extends UnitState {
   waypoints: Vector2[];
@@ -14,11 +17,38 @@ export interface MovementUnit extends UnitState {
   attackTask?: unknown;
 }
 
+interface MovementRecoveryState {
+  destination: Vector2;
+  attempts: number;
+  nextRetryTick: number;
+}
+
+export interface MovementRecoveryDiagnostics {
+  recoveryRepathAttempts: number;
+  recoveredOrders: number;
+  abandonedOrders: number;
+  activeRecoveries: number;
+}
+
 export class MovementSystem<TUnit extends MovementUnit> {
+  private movementTick = 0;
+  private readonly recoveries = new Map<string, MovementRecoveryState>();
+  private recoveryRepathAttempts = 0;
+  private recoveredOrders = 0;
+  private abandonedOrders = 0;
   constructor(
     private readonly tickRate: number,
     private readonly navigation: GridNavigation
   ) {}
+
+  getRecoveryDiagnostics(): MovementRecoveryDiagnostics {
+    return {
+      recoveryRepathAttempts: this.recoveryRepathAttempts,
+      recoveredOrders: this.recoveredOrders,
+      abandonedOrders: this.abandonedOrders,
+      activeRecoveries: this.recoveries.size
+    };
+  }
 
   resolveFormationTargets(target: Vector2, count: number): Vector2[] {
     return createReachableFormationTargets(target, count, this.navigation);
@@ -65,9 +95,19 @@ export class MovementSystem<TUnit extends MovementUnit> {
   }
 
   moveUnits(units: Iterable<TUnit>): void {
+    this.movementTick += 1;
     const maxDistancePerTick = 1 / this.tickRate;
 
     for (const unit of units) {
+      this.processRecovery(unit);
+
+      if (
+        this.recoveries.has(unit.id) &&
+        unit.waypoints.length === 0
+      ) {
+        continue;
+      }
+
       let remainingDistance = unit.speed * maxDistancePerTick;
 
       while (remainingDistance > ARRIVAL_EPSILON && unit.waypoints.length > 0) {
@@ -84,12 +124,22 @@ export class MovementSystem<TUnit extends MovementUnit> {
 
           unit.waypoints = [];
 
-          if (!destination || !this.assignPath(unit, destination)) {
+          if (!destination) {
             unit.destination = null;
             break;
           }
 
-          continue;
+          if (this.assignPath(unit, destination)) {
+            continue;
+          }
+
+          if (this.canRecoverMovement(unit)) {
+            this.scheduleRecovery(unit, destination);
+          } else {
+            unit.destination = null;
+          }
+
+          break;
         }
 
         const distanceToWaypoint = distance(unit.position, waypoint);
@@ -114,6 +164,10 @@ export class MovementSystem<TUnit extends MovementUnit> {
       }
 
       if (unit.waypoints.length === 0) {
+        if (this.recoveries.has(unit.id)) {
+          continue;
+        }
+
         unit.destination = null;
 
         if (
@@ -129,6 +183,7 @@ export class MovementSystem<TUnit extends MovementUnit> {
   }
 
   assignPath(unit: TUnit, target: Vector2): boolean {
+    this.recoveries.delete(unit.id);
     const resolvedTarget = this.navigation.resolveTarget(target);
 
     if (!resolvedTarget) {
@@ -155,6 +210,74 @@ export class MovementSystem<TUnit extends MovementUnit> {
     unit.destination = { ...resolvedTarget };
     unit.waypoints = path.map((waypoint) => ({ ...waypoint }));
     return true;
+  }
+
+  private processRecovery(unit: TUnit): void {
+    const recovery = this.recoveries.get(unit.id);
+
+    if (!recovery || this.movementTick < recovery.nextRetryTick) {
+      return;
+    }
+
+    this.recoveryRepathAttempts += 1;
+    const destination = { ...recovery.destination };
+
+    if (this.assignPath(unit, destination)) {
+      this.recoveredOrders += 1;
+      return;
+    }
+
+    const attempts = recovery.attempts + 1;
+
+    if (attempts >= RECOVERY_RETRY_ATTEMPTS) {
+      this.recoveries.delete(unit.id);
+      this.abandonedOrders += 1;
+      unit.destination = null;
+      unit.waypoints = [];
+
+      if (this.canRecoverMovement(unit)) {
+        unit.activity = "idle";
+      }
+      return;
+    }
+
+    this.recoveries.set(unit.id, {
+      destination,
+      attempts,
+      nextRetryTick:
+        this.movementTick +
+        RECOVERY_RETRY_INTERVAL_TICKS +
+        deterministicRecoveryStagger(unit.id)
+    });
+    unit.destination = destination;
+    unit.waypoints = [];
+  }
+
+  private scheduleRecovery(unit: TUnit, destination: Vector2): void {
+    if (this.recoveries.has(unit.id)) {
+      return;
+    }
+
+    this.recoveries.set(unit.id, {
+      destination: { ...destination },
+      attempts: 0,
+      nextRetryTick:
+        this.movementTick +
+        RECOVERY_RETRY_INTERVAL_TICKS +
+        deterministicRecoveryStagger(unit.id)
+    });
+    unit.destination = { ...destination };
+    unit.waypoints = [];
+    unit.activity = "moving";
+  }
+
+  private canRecoverMovement(unit: TUnit): boolean {
+    return (
+      unit.activity === "moving" &&
+      !unit.gatherTask &&
+      !unit.buildTask &&
+      !unit.attackTask
+    );
   }
 
   resolveUnitSeparation(units: Iterable<TUnit>): void {
@@ -434,6 +557,16 @@ function addFormationTargetToBuckets(
   } else {
     buckets.set(key, [target]);
   }
+}
+
+function deterministicRecoveryStagger(unitId: string): number {
+  let hash = 0;
+
+  for (let index = 0; index < unitId.length; index += 1) {
+    hash = (hash * 31 + unitId.charCodeAt(index)) >>> 0;
+  }
+
+  return hash % RECOVERY_STAGGER_BUCKETS;
 }
 
 function distance(a: Vector2, b: Vector2): number {
