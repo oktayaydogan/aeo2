@@ -50,6 +50,10 @@ export class MovementSystem<TUnit extends MovementUnit> {
     };
   }
 
+  cancelMovement(unitId: string): void {
+    this.recoveries.delete(unitId);
+  }
+
   resolveFormationTargets(target: Vector2, count: number): Vector2[] {
     return createReachableFormationTargets(target, count, this.navigation);
   }
