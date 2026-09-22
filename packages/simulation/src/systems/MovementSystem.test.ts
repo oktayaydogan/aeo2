@@ -98,6 +98,53 @@ describe("MovementSystem", () => {
     expect(second.position).toEqual(repeatedSecond.position);
   });
 
+  it("allows units on opposing paths to pass without separation deadlock", () => {
+    const first = createUnit("a", { x: 2, y: 3 });
+    const second = createUnit("b", { x: 4, y: 3 });
+    first.activity = "moving";
+    second.activity = "moving";
+    first.destination = { x: 4, y: 3 };
+    second.destination = { x: 2, y: 3 };
+    first.waypoints = [{ x: 4, y: 3 }];
+    second.waypoints = [{ x: 2, y: 3 }];
+
+    const system = new MovementSystem(
+      20,
+      new GridNavigation({ width: 10, height: 10 })
+    );
+
+    for (let tick = 0; tick < 25; tick += 1) {
+      system.moveUnits([first, second]);
+      system.resolveUnitSeparation([first, second]);
+    }
+
+    expect(first.position.x).toBeCloseTo(4);
+    expect(second.position.x).toBeCloseTo(2);
+    expect(first.destination).toBeNull();
+    expect(second.destination).toBeNull();
+  });
+
+  it("does not let an idle unit body-block a moving unit", () => {
+    const moving = createUnit("moving", { x: 2, y: 3 });
+    const idle = createUnit("idle", { x: 3, y: 3 });
+    moving.activity = "moving";
+    moving.destination = { x: 4, y: 3 };
+    moving.waypoints = [{ x: 4, y: 3 }];
+
+    const system = new MovementSystem(
+      20,
+      new GridNavigation({ width: 10, height: 10 })
+    );
+
+    for (let tick = 0; tick < 25; tick += 1) {
+      system.moveUnits([moving, idle]);
+      system.resolveUnitSeparation([moving, idle]);
+    }
+
+    expect(moving.position.x).toBeCloseTo(4);
+    expect(moving.destination).toBeNull();
+  });
+
   it("assigns navigation paths and clears destination on an unreachable target", () => {
     const unit = createUnit("unit-1", { x: 1.5, y: 1.5 });
     const navigation = new GridNavigation({
