@@ -62,12 +62,25 @@ export const DEFAULT_TICK_RATE = 20;
 const DEFAULT_MAP_SIZE = 64;
 const ARRIVAL_EPSILON = 0.000001;
 
+type UnitActionCommand =
+  | MoveCommand
+  | GatherCommand
+  | BuildCommand
+  | AttackCommand
+  | AttackBuildingCommand;
+
+interface QueuedUnitOrder {
+  groupId: number;
+  command: UnitActionCommand;
+}
+
 interface RuntimeUnit extends UnitState {
   waypoints: Vector2[];
   gatherTask?: GatherTask;
   buildTask?: BuildTask;
   attackTask?: AttackTask;
   attackCooldownTicks: number;
+  orderQueue: QueuedUnitOrder[];
 }
 
 export class Simulation {
@@ -77,6 +90,7 @@ export class Simulation {
   private tick = 0;
   private nextBuildingSequence = 1;
   private nextUnitSequence = 1;
+  private nextOrderGroupSequence = 1;
   private readonly navigation: GridNavigation;
   private readonly movementSystem: MovementSystem<RuntimeUnit>;
   private readonly units = new Map<string, RuntimeUnit>();
@@ -100,6 +114,7 @@ export class Simulation {
     reason: null
   };
   private readonly commandQueue: GameCommand[] = [];
+  private readonly queuedOrderGroups = new Map<number, Set<string>>();
 
   constructor(options: SimulationOptions = {}) {
     this.tickRate = options.tickRate ?? DEFAULT_TICK_RATE;
@@ -221,7 +236,8 @@ export class Simulation {
       this.units.set(unit.id, {
         ...cloneUnit(unit),
         waypoints: [],
-        attackCooldownTicks: 0
+        attackCooldownTicks: 0,
+        orderQueue: []
       });
       this.ensureStockpile(unit.ownerId);
       this.nextUnitSequence += 1;
@@ -299,6 +315,7 @@ export class Simulation {
     }
 
     this.applyQueuedCommands();
+    this.advanceUnitOrderQueues();
     this.aiSystem.process(this.tick);
     this.movementSystem.moveUnits(this.units.values());
     this.economySystem.step(this.units.values());
@@ -313,13 +330,14 @@ export class Simulation {
     this.researchSystem.step(this.buildings.values());
     this.combatSystem.step();
     this.movementSystem.resolveUnitSeparation(this.units.values());
+    this.advanceUnitOrderQueues();
     this.tick += 1;
   }
 
   getSnapshot(): SimulationSnapshot {
     return {
       tick: this.tick,
-      units: [...this.units.values()].map(cloneUnit),
+      units: [...this.units.values()].map(cloneRuntimeUnit),
       resources: [...this.resources.values()].map(cloneResource),
       stockpiles: [...this.stockpiles.entries()].map(
         ([playerId, resources]): PlayerStockpileState => ({
@@ -381,7 +399,10 @@ export class Simulation {
     }
   }
 
-  private applyMoveCommand(command: MoveCommand): void {
+  private applyMoveCommand(
+    command: MoveCommand,
+    fromQueue = false
+  ): void {
     const controllableUnits = selectOwnedUnits(
       command.unitIds,
       command.playerId,
@@ -415,7 +436,10 @@ export class Simulation {
     });
   }
 
-  private applyGatherCommand(command: GatherCommand): void {
+  private applyGatherCommand(
+    command: GatherCommand,
+    fromQueue = false
+  ): void {
     const resource = this.resources.get(command.resourceId);
 
     if (!resource || resource.amount <= ARRIVAL_EPSILON) {
@@ -448,7 +472,10 @@ export class Simulation {
     }
   }
 
-  private applyBuildCommand(command: BuildCommand): void {
+  private applyBuildCommand(
+    command: BuildCommand,
+    fromQueue = false
+  ): void {
     const definition = this.buildingDefinitions.get(command.buildingKind);
 
     if (!definition) {
@@ -561,7 +588,10 @@ export class Simulation {
     building.rallyPoint = { ...resolved };
   }
 
-  private applyAttackCommand(command: AttackCommand): void {
+  private applyAttackCommand(
+    command: AttackCommand,
+    fromQueue = false
+  ): void {
     const target = this.units.get(command.targetUnitId);
 
     if (!canAttackUnitTarget(target, command.playerId)) {
@@ -592,7 +622,8 @@ export class Simulation {
   }
 
   private applyAttackBuildingCommand(
-    command: AttackBuildingCommand
+    command: AttackBuildingCommand,
+    fromQueue = false
   ): void {
     const target = this.buildings.get(command.targetBuildingId);
 
@@ -651,7 +682,8 @@ export class Simulation {
       activity: "idle",
       cargo: null,
       waypoints: [],
-      attackCooldownTicks: 0
+      attackCooldownTicks: 0,
+      orderQueue: []
     };
 
     this.units.set(unitId, spawnedUnit);
