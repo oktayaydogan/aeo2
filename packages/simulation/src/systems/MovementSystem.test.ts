@@ -253,6 +253,47 @@ describe("MovementSystem", () => {
     expect(unit.waypoints.length).toBeGreaterThan(0);
   });
 
+  it("repaths around a waypoint blocked after the original path was assigned", () => {
+    const navigation = new GridNavigation({ width: 10, height: 5 });
+    const system = new MovementSystem(20, navigation);
+    const unit = createUnit("unit-1", { x: 1.5, y: 1.5 });
+    unit.activity = "moving";
+
+    expect(system.assignPath(unit, { x: 8.5, y: 1.5 })).toBe(true);
+
+    navigation.blockCells([{ x: 2, y: 1 }]);
+
+    for (let tick = 0; tick < 100; tick += 1) {
+      system.moveUnits([unit]);
+    }
+
+    expect(unit.position.x).toBeCloseTo(8.5);
+    expect(unit.position.y).toBeCloseTo(1.5);
+    expect(unit.destination).toBeNull();
+    expect(navigation.isWalkablePoint(unit.position)).toBe(true);
+  });
+
+  it("stops safely when a newly blocked route has no alternative", () => {
+    const navigation = new GridNavigation({ width: 6, height: 3 });
+    const system = new MovementSystem(20, navigation);
+    const unit = createUnit("unit-1", { x: 1.5, y: 1.5 });
+    unit.activity = "moving";
+
+    expect(system.assignPath(unit, { x: 4.5, y: 1.5 })).toBe(true);
+
+    navigation.blockCells([
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+      { x: 2, y: 2 }
+    ]);
+
+    system.moveUnits([unit]);
+
+    expect(unit.destination).toBeNull();
+    expect(unit.waypoints).toEqual([]);
+    expect(unit.position.x).toBeLessThan(2);
+  });
+
   it("assigns navigation paths and clears destination on an unreachable target", () => {
     const unit = createUnit("unit-1", { x: 1.5, y: 1.5 });
     const navigation = new GridNavigation({
