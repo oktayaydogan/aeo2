@@ -1,3 +1,4 @@
+import { MIN_UNIT_DISTANCE } from "./MovementSystem";
 import type {
   DropOffPointState,
   ResourceKind,
@@ -9,6 +10,7 @@ import type {
 
 const ARRIVAL_EPSILON = 0.000001;
 const GATHER_RANGE = 0.48;
+const GATHER_RETENTION_RANGE = GATHER_RANGE + MIN_UNIT_DISTANCE;
 const DROP_OFF_RANGE = 0.7;
 const VILLAGER_CARRY_CAPACITY = 10;
 const VILLAGER_GATHER_RATE = 4;
@@ -158,7 +160,7 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     unit: TUnit,
     resource: ResourceNodeState
   ): void {
-    if (distance(unit.position, resource.position) > GATHER_RANGE * 1.5) {
+    if (distance(unit.position, resource.position) > GATHER_RETENTION_RANGE) {
       this.routeVillagerToResource(unit, resource);
       return;
     }
