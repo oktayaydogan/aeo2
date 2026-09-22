@@ -15,7 +15,6 @@ import {
   type AttackTask
 } from "./systems/CombatSystem";
 import {
-  createFormationTargets,
   MIN_UNIT_DISTANCE,
   MovementSystem
 } from "./systems/MovementSystem";
@@ -387,9 +386,9 @@ export class Simulation {
       command.unitIds,
       command.playerId,
       this.units
-    );
+    ).sort((a, b) => a.id.localeCompare(b.id));
 
-    const formationTargets = createFormationTargets(
+    const formationTargets = this.movementSystem.resolveFormationTargets(
       command.target,
       controllableUnits.length
     );
