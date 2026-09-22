@@ -49,6 +49,7 @@ import type {
   SimulationOptions,
   SetRallyPointCommand,
   SimulationSnapshot,
+  StopCommand,
   TechnologyDefinition,
   TrainCommand,
   UnitDefinition,
@@ -396,6 +397,9 @@ export class Simulation {
       case "attack-building":
         this.applyAttackBuildingCommand(command);
         break;
+      case "stop":
+        this.applyStopCommand(command);
+        break;
     }
   }
 
@@ -716,6 +720,23 @@ export class Simulation {
         targetDefinition,
         definition
       );
+    }
+  }
+
+  private applyStopCommand(command: StopCommand): void {
+    const units = selectOwnedUnits(
+      command.unitIds,
+      command.playerId,
+      this.units
+    );
+
+    for (const unit of units) {
+      this.clearQueuedOrders(unit);
+      this.clearWorkTasks(unit);
+      this.movementSystem.cancelMovement(unit.id);
+      unit.waypoints = [];
+      unit.destination = null;
+      unit.activity = "idle";
     }
   }
 
@@ -1252,6 +1273,11 @@ function cloneCommand(command: GameCommand): GameCommand {
         unitIds: [...command.unitIds]
       };
     case "attack-building":
+      return {
+        ...command,
+        unitIds: [...command.unitIds]
+      };
+    case "stop":
       return {
         ...command,
         unitIds: [...command.unitIds]
