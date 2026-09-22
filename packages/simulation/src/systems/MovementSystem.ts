@@ -20,6 +20,10 @@ export class MovementSystem<TUnit extends MovementUnit> {
     private readonly navigation: GridNavigation
   ) {}
 
+  resolveFormationTargets(target: Vector2, count: number): Vector2[] {
+    return createReachableFormationTargets(target, count, this.navigation);
+  }
+
   moveUnits(units: Iterable<TUnit>): void {
     const maxDistancePerTick = 1 / this.tickRate;
 
@@ -144,6 +148,63 @@ export class MovementSystem<TUnit extends MovementUnit> {
   }
 }
 
+export function createReachableFormationTargets(
+  target: Vector2,
+  count: number,
+  navigation: GridNavigation
+): Vector2[] {
+  if (count <= 0) {
+    return [];
+  }
+
+  const targets: Vector2[] = [];
+  const buckets = new Map<string, Vector2[]>();
+  const maxRing = Math.max(
+    4,
+    Math.ceil(Math.sqrt(count)) * 4,
+    navigation.width,
+    navigation.height
+  );
+
+  for (let ring = 0; ring <= maxRing && targets.length < count; ring += 1) {
+    for (const candidate of formationRingCandidates(target, ring)) {
+      const resolved = navigation.resolveTarget(candidate);
+
+      if (
+        !resolved ||
+        hasNearbyFormationTarget(resolved, buckets)
+      ) {
+        continue;
+      }
+
+      targets.push(resolved);
+      addFormationTargetToBuckets(resolved, buckets);
+
+      if (targets.length >= count) {
+        break;
+      }
+    }
+  }
+
+  if (targets.length === 0) {
+    const fallback = navigation.resolveTarget(target);
+    return fallback ? [{ ...fallback }] : [];
+  }
+
+  // Extremely small/fragmented maps may not have enough physically distinct
+  // walkable slots. Reuse valid slots deterministically rather than failing
+  // the remaining units' move command.
+  for (let index = targets.length; index < count; index += 1) {
+    const fallback = targets[index % targets.length];
+
+    if (fallback) {
+      targets.push({ ...fallback });
+    }
+  }
+
+  return targets;
+}
+
 export function createFormationTargets(
   target: Vector2,
   count: number
@@ -239,6 +300,79 @@ function separatePair<TUnit extends MovementUnit>(
 
   if (navigation.isWalkablePoint(nextB)) {
     b.position = nextB;
+  }
+}
+
+function formationRingCandidates(
+  target: Vector2,
+  ring: number
+): Vector2[] {
+  if (ring === 0) {
+    return [{ ...target }];
+  }
+
+  const candidates: Vector2[] = [];
+
+  for (let y = -ring; y <= ring; y += 1) {
+    for (let x = -ring; x <= ring; x += 1) {
+      if (Math.max(Math.abs(x), Math.abs(y)) !== ring) {
+        continue;
+      }
+
+      candidates.push({
+        x: target.x + x * FORMATION_SPACING,
+        y: target.y + y * FORMATION_SPACING
+      });
+    }
+  }
+
+  return candidates;
+}
+
+function hasNearbyFormationTarget(
+  target: Vector2,
+  buckets: Map<string, Vector2[]>
+): boolean {
+  const bucketX = Math.floor(target.x / MIN_UNIT_DISTANCE);
+  const bucketY = Math.floor(target.y / MIN_UNIT_DISTANCE);
+
+  for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+    for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+      const bucket = buckets.get(
+        `${bucketX + offsetX},${bucketY + offsetY}`
+      );
+
+      if (!bucket) {
+        continue;
+      }
+
+      if (
+        bucket.some(
+          (existing) =>
+            distance(existing, target) < MIN_UNIT_DISTANCE - ARRIVAL_EPSILON
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function addFormationTargetToBuckets(
+  target: Vector2,
+  buckets: Map<string, Vector2[]>
+): void {
+  const key = `${Math.floor(target.x / MIN_UNIT_DISTANCE)},${Math.floor(
+    target.y / MIN_UNIT_DISTANCE
+  )}`;
+  const bucket = buckets.get(key);
+
+  if (bucket) {
+    bucket.push(target);
+  } else {
+    buckets.set(key, [target]);
   }
 }
 
