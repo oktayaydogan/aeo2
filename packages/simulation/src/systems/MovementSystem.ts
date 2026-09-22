@@ -77,6 +77,21 @@ export class MovementSystem<TUnit extends MovementUnit> {
           break;
         }
 
+        if (!this.navigation.isWalkablePoint(waypoint)) {
+          const destination = unit.destination
+            ? { ...unit.destination }
+            : null;
+
+          unit.waypoints = [];
+
+          if (!destination || !this.assignPath(unit, destination)) {
+            unit.destination = null;
+            break;
+          }
+
+          continue;
+        }
+
         const distanceToWaypoint = distance(unit.position, waypoint);
 
         if (distanceToWaypoint <= ARRIVAL_EPSILON) {
