@@ -47,7 +47,6 @@ export class UnitRenderer {
       const healthBar = this.healthBars.get(unit.id);
 
       view.setVisible(visible);
-      healthBar?.setVisible(visible);
 
       if (unit.ownerId !== "player-1") {
         if (visible) {
@@ -95,6 +94,11 @@ export class UnitRenderer {
       this.lastHitPoints.set(unit.id, unit.hitPoints);
 
       const selected = this.options.selectedUnitIds.has(unit.id);
+      healthBar?.setVisible(
+        visible &&
+          (selected || unit.hitPoints < maxHitPoints - 0.001)
+      );
+
       const activityPhase = snapshot.tick * 0.22;
       const activityOffset =
         unit.activity === "gathering" || unit.activity === "building"
