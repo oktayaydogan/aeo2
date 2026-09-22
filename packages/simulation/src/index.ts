@@ -28,6 +28,7 @@ export type {
   ResourceNodeState,
   ResourceStockpile,
   SetRallyPointCommand,
+  StopCommand,
   SimulationOptions,
   SimulationSnapshot,
   TechnologyDefinition,
@@ -38,6 +39,8 @@ export type {
   UnitAttackBonus,
   UnitDefinition,
   UnitKind,
+  UnitOrderState,
+  UnitOrderType,
   UnitState,
   Vector2
 } from "./types";
