@@ -5,6 +5,7 @@ import {
   createSkirmishSearch,
   readSkirmishSettings,
   type AiDifficulty,
+  type MapSizePreset,
   type StartingResourcesPreset
 } from "./game/skirmishSettings";
 
@@ -148,11 +149,23 @@ export function App() {
                 <small>Applies deterministic resource presets to both sides.</small>
               </label>
 
-              <div className="setup-field setup-field-static">
+              <label className="setup-field">
                 <span>Map size</span>
-                <strong>Standard · 20 × 20</strong>
-                <small>Additional map sizes are not simulation-ready yet.</small>
-              </div>
+                <select
+                  value={settings.mapSize}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      mapSize: event.target.value as MapSizePreset
+                    }))
+                  }
+                >
+                  <option value="small">Small · 16 × 16</option>
+                  <option value="standard">Standard · 20 × 20</option>
+                  <option value="large">Large · 28 × 28</option>
+                </select>
+                <small>Map geometry and mirrored obstacles remain seeded.</small>
+              </label>
 
               <div className="setup-field setup-field-static">
                 <span>Starting age</span>
