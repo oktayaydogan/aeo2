@@ -38,6 +38,7 @@ import { createSkirmishSetup } from "../skirmishMap";
 import {
   aiProfileFor,
   enemyResourcesFor,
+  mapSizeFor,
   playerResourcesFor,
   readSkirmishSettings
 } from "../skirmishSettings";
@@ -49,7 +50,6 @@ import { ResourceRenderer } from "../renderers/ResourceRenderer";
 import { SelectionRenderer } from "../renderers/SelectionRenderer";
 import { UnitRenderer } from "../renderers/UnitRenderer";
 
-const MAP_SIZE = 20;
 const UNIT_RADIUS = 6;
 const FOG_UPDATE_INTERVAL_MS = 100;
 const MINIMAP_SIZE = 160;
@@ -66,7 +66,13 @@ const BENCHMARK_ORDER_INTERVAL_MS = 1_000;
 
 const SKIRMISH_SETTINGS = readSkirmishSettings();
 const SKIRMISH_SEED = SKIRMISH_SETTINGS.seed;
-const SKIRMISH_SETUP = createSkirmishSetup(SKIRMISH_SEED);
+const MAP_SIZE = BENCHMARK_MODE
+  ? 20
+  : mapSizeFor(SKIRMISH_SETTINGS.mapSize);
+const SKIRMISH_SETUP = createSkirmishSetup(
+  SKIRMISH_SEED,
+  MAP_SIZE
+);
 const AI_PROFILE = aiProfileFor(SKIRMISH_SETTINGS.aiDifficulty);
 const PLAYER_STARTING_RESOURCES = playerResourcesFor(
   SKIRMISH_SETTINGS.startingResources
@@ -326,7 +332,10 @@ export class WorldScene extends Phaser.Scene {
 
     const initialFocus = BENCHMARK_MODE
       ? { x: MAP_SIZE / 2, y: MAP_SIZE / 2 }
-      : { x: 5, y: 9.5 };
+      : {
+          x: SKIRMISH_SETUP.player.townCenter.x + 4,
+          y: SKIRMISH_SETUP.player.townCenter.y + 1.5
+        };
     const initialFocusWorld = gridToScreen(
       initialFocus,
       this.projection
