@@ -7,6 +7,7 @@ import type {
   MoveCommand as ProtocolMoveCommand,
   ResearchCommand as ProtocolResearchCommand,
   SetRallyPointCommand as ProtocolSetRallyPointCommand,
+  StopCommand as ProtocolStopCommand,
   TrainCommand as ProtocolTrainCommand
 } from "@aeo2/protocol";
 
@@ -206,6 +207,7 @@ export type ResearchCommand = ProtocolResearchCommand<TechnologyKind>;
 export type SetRallyPointCommand = ProtocolSetRallyPointCommand;
 export type AttackCommand = ProtocolAttackCommand;
 export type AttackBuildingCommand = ProtocolAttackBuildingCommand;
+export type StopCommand = ProtocolStopCommand;
 
 export type MatchStatus = "playing" | "ended";
 
