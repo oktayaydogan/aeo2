@@ -11,10 +11,14 @@ export interface HotkeyActions {
   trainSpearman(): void;
   researchForgedWeapons(): void;
   stopSelectedUnits(): void;
+  assignControlGroup(slot: number): void;
+  recallControlGroup(slot: number): void;
   restartEndedMatch(): void;
 }
 
 export class HotkeyController {
+  private controlKey?: Phaser.Input.Keyboard.Key;
+
   constructor(
     private readonly keyboard: Phaser.Input.Keyboard.KeyboardPlugin | null,
     private readonly actions: HotkeyActions
@@ -23,6 +27,20 @@ export class HotkeyController {
   configure(): void {
     if (!this.keyboard) {
       return;
+    }
+
+    this.controlKey = this.keyboard.addKey(
+      Phaser.Input.Keyboard.KeyCodes.CTRL
+    );
+
+    for (let slot = 1; slot <= 9; slot += 1) {
+      this.bind(48 + slot, () => {
+        if (this.controlKey?.isDown) {
+          this.actions.assignControlGroup(slot);
+        } else {
+          this.actions.recallControlGroup(slot);
+        }
+      });
     }
 
     this.bind(Phaser.Input.Keyboard.KeyCodes.H, () => this.actions.placeHouse());
