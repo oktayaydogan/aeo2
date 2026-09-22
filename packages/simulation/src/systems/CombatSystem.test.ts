@@ -102,6 +102,102 @@ describe("CombatSystem", () => {
     expect(matchState.status).toBe("playing");
   });
 
+  it("routes melee attackers to distinct approach slots around a unit target", () => {
+    const first = createUnit("militia-a", "p1", "militia", 40, {
+      x: 1,
+      y: 2
+    });
+    const second = createUnit("militia-b", "p1", "militia", 40, {
+      x: 1,
+      y: 3
+    });
+    const target = createUnit("archer-target", "p2", "archer", 30, {
+      x: 5,
+      y: 2.5
+    });
+    first.attackTask = { targetType: "unit", targetId: target.id };
+    second.attackTask = { targetType: "unit", targetId: target.id };
+
+    const militia: UnitDefinition = {
+      kind: "militia",
+      displayName: "Militia",
+      cost: { wood: 0, food: 0, gold: 0 },
+      trainTimeSeconds: 1,
+      maxHitPoints: 40,
+      speed: 2,
+      attackDamage: 4,
+      attackRange: 0.75,
+      attackCooldownSeconds: 1,
+      populationCost: 1
+    };
+    const archer: UnitDefinition = {
+      kind: "archer",
+      displayName: "Archer",
+      cost: { wood: 0, food: 0, gold: 0 },
+      trainTimeSeconds: 1,
+      maxHitPoints: 30,
+      speed: 2,
+      attackDamage: 3,
+      attackRange: 4,
+      attackCooldownSeconds: 1,
+      populationCost: 1
+    };
+    const units = new Map([
+      [first.id, first],
+      [second.id, second],
+      [target.id, target]
+    ]);
+    const matchState: MatchState = {
+      status: "playing",
+      winnerPlayerId: null,
+      loserPlayerId: null,
+      reason: null
+    };
+    const system = new CombatSystem(
+      20,
+      units,
+      new Map(),
+      new Map([
+        [militia.kind, militia],
+        [archer.kind, archer]
+      ]),
+      new Map(),
+      matchState,
+      new GridNavigation({ width: 10, height: 10 }),
+      () => 0,
+      (unit, destination) => {
+        unit.destination = { ...destination };
+        unit.waypoints = [{ ...destination }];
+        return true;
+      },
+      () => null,
+      () => undefined
+    );
+
+    system.step();
+
+    expect(first.destination).not.toBeNull();
+    expect(second.destination).not.toBeNull();
+    expect(first.destination).not.toEqual(second.destination);
+    expect(first.destination).not.toEqual(target.position);
+    expect(second.destination).not.toEqual(target.position);
+
+    for (const destination of [first.destination, second.destination]) {
+      expect(destination).not.toBeNull();
+
+      if (!destination) {
+        continue;
+      }
+
+      expect(
+        Math.hypot(
+          destination.x - target.position.x,
+          destination.y - target.position.y
+        )
+      ).toBeLessThanOrEqual(militia.attackRange);
+    }
+  });
+
   it("destroys a town center, releases its footprint, and resolves the match once", () => {
     const attacker = createUnit("militia-1", "p1", "militia", 40, { x: 3.5, y: 4 });
     attacker.attackTask = { targetType: "building", targetId: "tc-1" };
