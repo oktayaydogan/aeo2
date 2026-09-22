@@ -20,50 +20,68 @@ export interface SkirmishSetup {
   enemy: SkirmishStart;
 }
 
-const WIDTH = 20;
-const HEIGHT = 20;
-const CENTER_CORRIDOR_Y = new Set([9, 10]);
-const OBSTACLE_PAIR_TARGET = 8;
+const DEFAULT_MAP_SIZE = 20;
 
-export function createSkirmishSetup(seed: number): SkirmishSetup {
-  const normalizedSeed = normalizeSeed(seed);
-  const random = mulberry32(normalizedSeed);
-
-  const player: SkirmishStart = {
-    townCenter: { x: 1, y: 8 },
-    house: { x: 2, y: 4 },
-    dropOff: { x: 0.5, y: 10 },
-    unitsOrigin: { x: 2.1, y: 7.0 }
-  };
-  const enemy: SkirmishStart = {
-    townCenter: { x: 15, y: 8 },
-    house: { x: 16, y: 4 },
-    dropOff: { x: 19.5, y: 10 },
-    unitsOrigin: { x: 17.9, y: 7.0 }
-  };
-
-  const resources = createFairResources();
-  const reserved = new Set<string>();
-
-  reserveFootprint(reserved, player.townCenter, 4, 4, 1);
-  reserveFootprint(reserved, enemy.townCenter, 4, 4, 1);
-  reserveFootprint(reserved, player.house, 2, 2, 1);
-  reserveFootprint(reserved, enemy.house, 2, 2, 1);
-
-  for (const resource of resources) {
-    reserveAroundPoint(reserved, resource.position, 1);
+export function createSkirmishSetup(
+  seed: number,
+  mapSize = DEFAULT_MAP_SIZE
+): SkirmishSetup {
+  if (!Number.isInteger(mapSize) || mapSize < 20) {
+    throw new Error("Skirmish map size must be an integer of at least 20.");
   }
 
-  reserveAroundPoint(reserved, player.unitsOrigin, 2);
-  reserveAroundPoint(reserved, enemy.unitsOrigin, 2);
+  const width = mapSize;
+  const height = mapSize;
+  const centerY = Math.floor(height / 2);
+  const centerCorridorY = new Set([centerY - 1, centerY]);
+  const obstaclePairTarget = Math.max(8, Math.round(width * 0.4));
+  const normalizedSeed = normalizeSeed(seed);
+  const random = mulberry32(normalizedSeed);
+  const townCenterY = centerY - 2;
+  const houseY = Math.max(2, centerY - 6);
 
-  const blocked = createMirroredObstacles(random, reserved);
+  const player: SkirmishStart = {
+    townCenter: { x: 1, y: townCenterY },
+    house: { x: 2, y: houseY },
+    dropOff: { x: 0.5, y: centerY },
+    unitsOrigin: { x: 2.1, y: townCenterY - 1 }
+  };
+  const enemy: SkirmishStart = {
+    townCenter: { x: width - 5, y: townCenterY },
+    house: { x: width - 4, y: houseY },
+    dropOff: { x: width - 0.5, y: centerY },
+    unitsOrigin: { x: width - 2.1, y: townCenterY - 1 }
+  };
+
+  const resources = createFairResources(width, height);
+  const reserved = new Set<string>();
+
+  reserveFootprint(reserved, player.townCenter, 4, 4, 1, width, height);
+  reserveFootprint(reserved, enemy.townCenter, 4, 4, 1, width, height);
+  reserveFootprint(reserved, player.house, 2, 2, 1, width, height);
+  reserveFootprint(reserved, enemy.house, 2, 2, 1, width, height);
+
+  for (const resource of resources) {
+    reserveAroundPoint(reserved, resource.position, 1, width, height);
+  }
+
+  reserveAroundPoint(reserved, player.unitsOrigin, 2, width, height);
+  reserveAroundPoint(reserved, enemy.unitsOrigin, 2, width, height);
+
+  const blocked = createMirroredObstacles(
+    random,
+    reserved,
+    width,
+    height,
+    centerCorridorY,
+    obstaclePairTarget
+  );
 
   return {
     seed: normalizedSeed,
     map: {
-      width: WIDTH,
-      height: HEIGHT,
+      width,
+      height,
       blocked
     },
     resources,
@@ -72,24 +90,27 @@ export function createSkirmishSetup(seed: number): SkirmishSetup {
   };
 }
 
-function createFairResources(): ResourceNodeState[] {
+function createFairResources(
+  width: number,
+  height: number
+): ResourceNodeState[] {
   const playerResources: ResourceNodeState[] = [
     {
       id: "player-wood",
       kind: "wood",
-      position: { x: 5.5, y: 6.0 },
+      position: { x: width * 0.275, y: height * 0.3 },
       amount: 300
     },
     {
       id: "player-food",
       kind: "food",
-      position: { x: 5.5, y: 13.0 },
+      position: { x: width * 0.275, y: height * 0.65 },
       amount: 250
     },
     {
       id: "player-gold",
       kind: "gold",
-      position: { x: 7.0, y: 10.0 },
+      position: { x: width * 0.35, y: height * 0.5 },
       amount: 200
     }
   ];
@@ -99,37 +120,61 @@ function createFairResources(): ResourceNodeState[] {
     ...playerResources.map((resource) => ({
       ...resource,
       id: resource.id.replace("player-", "enemy-"),
-      position: mirrorPoint(resource.position)
+      position: mirrorPoint(resource.position, width)
     }))
   ];
 }
 
 function createMirroredObstacles(
   random: () => number,
-  reserved: ReadonlySet<string>
+  reserved: ReadonlySet<string>,
+  width: number,
+  height: number,
+  centerCorridorY: ReadonlySet<number>,
+  obstaclePairTarget: number
 ): GridCell[] {
   const blocked = new Map<string, GridCell>();
+  const minX = Math.floor(width * 0.3);
+  const maxXExclusive = Math.max(
+    minX + 1,
+    Math.floor(width * 0.45)
+  );
   let attempts = 0;
 
   while (
-    blocked.size < OBSTACLE_PAIR_TARGET * 2 &&
-    attempts < 400
+    blocked.size < obstaclePairTarget * 2 &&
+    attempts < 800
   ) {
     attempts += 1;
 
-    const x = 6 + Math.floor(random() * 3);
-    const y = 2 + Math.floor(random() * 16);
+    const x =
+      minX + Math.floor(random() * (maxXExclusive - minX));
+    const y = 2 + Math.floor(random() * (height - 4));
 
-    if (CENTER_CORRIDOR_Y.has(y)) {
+    if (centerCorridorY.has(y)) {
       continue;
     }
 
     const left = { x, y };
-    const right = { x: WIDTH - 1 - x, y };
+    const right = { x: width - 1 - x, y };
 
     if (
-      !canUseObstacle(left, reserved, blocked) ||
-      !canUseObstacle(right, reserved, blocked)
+      !canUseObstacle(
+        left,
+        reserved,
+        blocked,
+        width,
+        height,
+        centerCorridorY
+      ) ||
+      !canUseObstacle(
+        right,
+        reserved,
+        blocked,
+        width,
+        height,
+        centerCorridorY
+      )
     ) {
       continue;
     }
@@ -146,18 +191,21 @@ function createMirroredObstacles(
 function canUseObstacle(
   cell: GridCell,
   reserved: ReadonlySet<string>,
-  blocked: ReadonlyMap<string, GridCell>
+  blocked: ReadonlyMap<string, GridCell>,
+  width: number,
+  height: number,
+  centerCorridorY: ReadonlySet<number>
 ): boolean {
   if (
     cell.x < 0 ||
     cell.y < 0 ||
-    cell.x >= WIDTH ||
-    cell.y >= HEIGHT
+    cell.x >= width ||
+    cell.y >= height
   ) {
     return false;
   }
 
-  if (CENTER_CORRIDOR_Y.has(cell.y)) {
+  if (centerCorridorY.has(cell.y)) {
     return false;
   }
 
@@ -170,11 +218,19 @@ function reserveFootprint(
   origin: GridCell,
   width: number,
   height: number,
-  padding: number
+  padding: number,
+  mapWidth: number,
+  mapHeight: number
 ): void {
   for (let y = -padding; y < height + padding; y += 1) {
     for (let x = -padding; x < width + padding; x += 1) {
-      reserveCell(reserved, origin.x + x, origin.y + y);
+      reserveCell(
+        reserved,
+        origin.x + x,
+        origin.y + y,
+        mapWidth,
+        mapHeight
+      );
     }
   }
 }
@@ -182,14 +238,22 @@ function reserveFootprint(
 function reserveAroundPoint(
   reserved: Set<string>,
   point: Vector2,
-  radius: number
+  radius: number,
+  width: number,
+  height: number
 ): void {
   const originX = Math.floor(point.x);
   const originY = Math.floor(point.y);
 
   for (let y = -radius; y <= radius; y += 1) {
     for (let x = -radius; x <= radius; x += 1) {
-      reserveCell(reserved, originX + x, originY + y);
+      reserveCell(
+        reserved,
+        originX + x,
+        originY + y,
+        width,
+        height
+      );
     }
   }
 }
@@ -197,18 +261,20 @@ function reserveAroundPoint(
 function reserveCell(
   reserved: Set<string>,
   x: number,
-  y: number
+  y: number,
+  width: number,
+  height: number
 ): void {
-  if (x < 0 || y < 0 || x >= WIDTH || y >= HEIGHT) {
+  if (x < 0 || y < 0 || x >= width || y >= height) {
     return;
   }
 
   reserved.add(cellKey(x, y));
 }
 
-function mirrorPoint(point: Vector2): Vector2 {
+function mirrorPoint(point: Vector2, width: number): Vector2 {
   return {
-    x: WIDTH - point.x,
+    x: width - point.x,
     y: point.y
   };
 }
