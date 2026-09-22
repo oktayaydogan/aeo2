@@ -1,10 +1,12 @@
 export type AiDifficulty = "easy" | "standard" | "hard";
 export type StartingResourcesPreset = "low" | "standard" | "high";
+export type MapSizePreset = "small" | "standard" | "large";
 
 export interface SkirmishSettings {
   seed: number;
   aiDifficulty: AiDifficulty;
   startingResources: StartingResourcesPreset;
+  mapSize: MapSizePreset;
 }
 
 export interface AiProfile {
@@ -23,7 +25,8 @@ export interface ResourcePreset {
 export const DEFAULT_SKIRMISH_SETTINGS: SkirmishSettings = {
   seed: 20260920,
   aiDifficulty: "standard",
-  startingResources: "standard"
+  startingResources: "standard",
+  mapSize: "standard"
 };
 
 export function readSkirmishSettings(
@@ -36,6 +39,7 @@ export function readSkirmishSettings(
   const rawSeed = Number.parseInt(params.get("seed") ?? "", 10);
   const rawDifficulty = params.get("ai");
   const rawResources = params.get("resources");
+  const rawMapSize = params.get("map");
 
   return {
     seed:
@@ -47,7 +51,10 @@ export function readSkirmishSettings(
       : DEFAULT_SKIRMISH_SETTINGS.aiDifficulty,
     startingResources: isStartingResourcesPreset(rawResources)
       ? rawResources
-      : DEFAULT_SKIRMISH_SETTINGS.startingResources
+      : DEFAULT_SKIRMISH_SETTINGS.startingResources,
+    mapSize: isMapSizePreset(rawMapSize)
+      ? rawMapSize
+      : DEFAULT_SKIRMISH_SETTINGS.mapSize
   };
 }
 
@@ -64,8 +71,20 @@ export function createSkirmishSearch(
   params.set("seed", String(Math.abs(Math.trunc(settings.seed)) || 1));
   params.set("ai", settings.aiDifficulty);
   params.set("resources", settings.startingResources);
+  params.set("map", settings.mapSize);
 
   return params.toString();
+}
+
+export function mapSizeFor(preset: MapSizePreset): number {
+  switch (preset) {
+    case "small":
+      return 16;
+    case "large":
+      return 28;
+    default:
+      return 20;
+  }
 }
 
 export function aiProfileFor(
@@ -132,4 +151,11 @@ function isStartingResourcesPreset(
   value: string | null
 ): value is StartingResourcesPreset {
   return value === "low" || value === "standard" || value === "high";
+}
+
+
+function isMapSizePreset(
+  value: string | null
+): value is MapSizePreset {
+  return value === "small" || value === "standard" || value === "large";
 }
