@@ -33,7 +33,11 @@ import { PROTOTYPE_MAP } from "../prototypeMap";
 import { createSkirmishSetup } from "../skirmishMap";
 import { getHudCommandAvailability } from "../hudState";
 import { createPrototypeTextures } from "../prototypeTextures";
-import { FogOfWar } from "../visibility";
+import { BuildingRenderer } from "../renderers/BuildingRenderer";
+import { FogRenderer } from "../renderers/FogRenderer";
+import { ResourceRenderer } from "../renderers/ResourceRenderer";
+import { SelectionRenderer } from "../renderers/SelectionRenderer";
+import { UnitRenderer } from "../renderers/UnitRenderer";
 
 const MAP_SIZE = 20;
 const UNIT_RADIUS = 6;
@@ -210,23 +214,9 @@ export class WorldScene extends Phaser.Scene {
     originY: 110
   };
 
-  private readonly unitViews = new Map<string, Phaser.GameObjects.Image>();
-  private readonly unitHealthBars = new Map<string, Phaser.GameObjects.Rectangle>();
-  private readonly lastUnitHitPoints = new Map<string, number>();
-  private readonly unitIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
   private readonly selectedUnitIds = new Set<string>();
-  private readonly resourceViews = new Map<string, Phaser.GameObjects.Image>();
-  private readonly resourceLabels = new Map<string, Phaser.GameObjects.Text>();
-  private readonly resourceIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
-  private readonly buildingViews = new Map<string, Phaser.GameObjects.Image>();
-  private readonly buildingHealthBars = new Map<string, Phaser.GameObjects.Rectangle>();
-  private readonly lastBuildingHitPoints = new Map<string, number>();
-  private readonly buildingLabels = new Map<string, Phaser.GameObjects.Text>();
-  private readonly buildingIdByObject = new Map<Phaser.GameObjects.GameObject, string>();
-  private readonly fog = new FogOfWar(MAP_SIZE, MAP_SIZE);
 
   private accumulatorMs = 0;
-  private fogElapsedMs = 0;
   private metricsElapsedMs = 0;
   private simulationCostMs = 0;
   private benchmarkElapsedMs = 0;
@@ -239,10 +229,13 @@ export class WorldScene extends Phaser.Scene {
   private commandController?: CommandController;
   private hotkeyController?: HotkeyController;
   private selectionController?: SelectionController;
+  private buildingRenderer?: BuildingRenderer;
+  private fogRenderer?: FogRenderer;
+  private resourceRenderer?: ResourceRenderer;
+  private selectionRenderer?: SelectionRenderer;
+  private unitRenderer?: UnitRenderer;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
-  private unitSelectionGraphics?: Phaser.GameObjects.Graphics;
   private placementGraphics?: Phaser.GameObjects.Graphics;
-  private fogGraphics?: Phaser.GameObjects.Graphics;
   private minimapGraphics?: Phaser.GameObjects.Graphics;
   private minimapHitArea?: Phaser.GameObjects.Rectangle;
   private hudGraphics?: Phaser.GameObjects.Graphics;
@@ -264,25 +257,45 @@ export class WorldScene extends Phaser.Scene {
     createPrototypeTextures(this);
     this.drawMap();
     const initialSnapshot = this.simulation.getSnapshot();
-    this.createResourceViews(initialSnapshot);
-    this.createUnitViews(initialSnapshot);
 
     this.selectionGraphics = this.add
       .graphics()
       .setScrollFactor(0)
       .setDepth(100_000);
 
-    this.unitSelectionGraphics = this.add
-      .graphics()
-      .setDepth(79_999);
+    this.selectionRenderer = new SelectionRenderer(this);
+    this.resourceRenderer = new ResourceRenderer(this, this.projection);
+    this.unitRenderer = new UnitRenderer({
+      scene: this,
+      projection: this.projection,
+      selectionRenderer: this.selectionRenderer,
+      selectedUnitIds: this.selectedUnitIds,
+      onSelectOwnUnit: (unitId) =>
+        this.selectionController?.selectOnlyUnit(unitId)
+    });
+    this.buildingRenderer = new BuildingRenderer({
+      scene: this,
+      projection: this.projection,
+      getSelectedBuildingId: () => this.selectedBuildingId,
+      onSelectOwnBuilding: (buildingId) =>
+        this.selectionController?.selectOnlyBuilding(buildingId),
+      onBuildingRemoved: (buildingId) => {
+        if (this.selectedBuildingId === buildingId) {
+          this.selectedBuildingId = undefined;
+        }
+      }
+    });
+    this.fogRenderer = new FogRenderer({
+      scene: this,
+      projection: this.projection,
+      mapSize: MAP_SIZE,
+      updateIntervalMs: FOG_UPDATE_INTERVAL_MS,
+      benchmarkMode: BENCHMARK_MODE
+    });
 
     this.placementGraphics = this.add
       .graphics()
       .setDepth(90_000);
-
-    this.fogGraphics = this.add
-      .graphics()
-      .setDepth(80_000);
 
     this.minimapGraphics = this.add
       .graphics()
@@ -449,79 +462,6 @@ export class WorldScene extends Phaser.Scene {
         }
       }
     }
-  }
-
-  private createResourceViews(snapshot: SimulationSnapshot): void {
-    for (const resource of snapshot.resources) {
-      const point = gridToScreen(resource.position, this.projection);
-      const view = this.add
-        .image(
-          point.x,
-          point.y - 8,
-          resourceTextureKey(resource.kind)
-        )
-        .setOrigin(0.5, 0.8)
-        .setDepth(point.y)
-        .setInteractive({ useHandCursor: true });
-
-      const label = this.add
-        .text(point.x, point.y + 10, resourceLabel(resource), {
-          fontFamily: "Inter, Arial, sans-serif",
-          fontSize: "10px",
-          color: "#f6f1df",
-          backgroundColor: "#091017bb",
-          padding: { x: 3, y: 1 }
-        })
-        .setOrigin(0.5, 0)
-        .setDepth(point.y + 1);
-
-      this.resourceViews.set(resource.id, view);
-      this.resourceLabels.set(resource.id, label);
-      this.resourceIdByObject.set(view, resource.id);
-    }
-  }
-
-  private createUnitViews(snapshot: SimulationSnapshot): void {
-    for (const unit of snapshot.units) {
-      this.ensureUnitView(unit);
-    }
-  }
-
-  private ensureUnitView(unit: UnitState): Phaser.GameObjects.Image {
-    const existing = this.unitViews.get(unit.id);
-
-    if (existing) {
-      return existing;
-    }
-
-    const point = gridToScreen(unit.position, this.projection);
-    const image = this.add
-      .image(
-        point.x,
-        point.y - 7,
-        unitTextureKey(unit.kind)
-      )
-      .setOrigin(0.5, 0.82)
-      .setDepth(point.y)
-      .setTint(unitTint(unit))
-      .setInteractive({ useHandCursor: true });
-
-    image.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown() && unit.ownerId === "player-1") {
-        this.selectionController?.selectOnlyUnit(unit.id);
-      }
-    });
-
-    const healthBar = this.add
-      .rectangle(point.x, point.y - 23, 18, 3, 0x7ecf7a, 1)
-      .setOrigin(0.5, 0.5)
-      .setDepth(point.y + 2);
-
-    this.unitViews.set(unit.id, image);
-    this.unitHealthBars.set(unit.id, healthBar);
-    this.lastUnitHitPoints.set(unit.id, unit.hitPoints);
-    this.unitIdByObject.set(image, unit.id);
-    return image;
   }
 
   private createHudButtons(): void {
@@ -724,61 +664,41 @@ export class WorldScene extends Phaser.Scene {
   private findResourceUnderPointer(
     currentlyOver: Phaser.GameObjects.GameObject[]
   ): string | undefined {
-    for (const gameObject of currentlyOver) {
-      const resourceId = this.resourceIdByObject.get(gameObject);
-
-      if (resourceId) {
-        return resourceId;
-      }
-    }
-
-    return undefined;
+    return this.resourceRenderer?.findId(currentlyOver);
   }
 
   private findEnemyUnitUnderPointer(
     currentlyOver: Phaser.GameObjects.GameObject[]
   ): string | undefined {
-    const snapshot = this.simulation.getSnapshot();
+    const unitId = this.unitRenderer?.findId(currentlyOver);
 
-    for (const gameObject of currentlyOver) {
-      const unitId = this.unitIdByObject.get(gameObject);
-
-      if (!unitId) {
-        continue;
-      }
-
-      const unit = snapshot.units.find((entry) => entry.id === unitId);
-
-      if (unit && unit.ownerId !== "player-1") {
-        return unit.id;
-      }
+    if (!unitId) {
+      return undefined;
     }
 
-    return undefined;
+    const unit = this.simulation
+      .getSnapshot()
+      .units.find((entry) => entry.id === unitId);
+
+    return unit && unit.ownerId !== "player-1" ? unit.id : undefined;
   }
 
   private findEnemyBuildingUnderPointer(
     currentlyOver: Phaser.GameObjects.GameObject[]
   ): string | undefined {
-    const snapshot = this.simulation.getSnapshot();
+    const buildingId = this.buildingRenderer?.findId(currentlyOver);
 
-    for (const gameObject of currentlyOver) {
-      const buildingId = this.buildingIdByObject.get(gameObject);
-
-      if (!buildingId) {
-        continue;
-      }
-
-      const building = snapshot.buildings.find(
-        (entry) => entry.id === buildingId
-      );
-
-      if (building && building.ownerId !== "player-1") {
-        return building.id;
-      }
+    if (!buildingId) {
+      return undefined;
     }
 
-    return undefined;
+    const building = this.simulation
+      .getSnapshot()
+      .buildings.find((entry) => entry.id === buildingId);
+
+    return building && building.ownerId !== "player-1"
+      ? building.id
+      : undefined;
   }
 
   private issueAttackBuildingCommand(targetBuildingId: string): void {
@@ -994,92 +914,7 @@ export class WorldScene extends Phaser.Scene {
     delta: number,
     snapshot: SimulationSnapshot
   ): void {
-    if (BENCHMARK_MODE) {
-      return;
-    }
-
-    this.fogElapsedMs += delta;
-
-    if (
-      this.fogElapsedMs < FOG_UPDATE_INTERVAL_MS &&
-      this.fog.exploredCellCount() > 0
-    ) {
-      return;
-    }
-
-    this.fogElapsedMs = 0;
-
-    const unitSources = snapshot.units
-      .filter((unit) => unit.ownerId === "player-1")
-      .map((unit) => ({
-        x: unit.position.x,
-        y: unit.position.y,
-        radius: unitVisionRadius(unit)
-      }));
-
-    const buildingSources = snapshot.buildings
-      .filter(
-        (building) =>
-          building.ownerId === "player-1" && building.completed
-      )
-      .map((building) => {
-        const definition = BUILDING_DEFINITIONS.find(
-          (entry) => entry.kind === building.kind
-        );
-
-        return {
-          x:
-            building.position.x +
-            (definition?.footprint.width ?? 1) / 2,
-          y:
-            building.position.y +
-            (definition?.footprint.height ?? 1) / 2,
-          radius: buildingVisionRadius(building)
-        };
-      });
-
-    this.fog.update([...unitSources, ...buildingSources]);
-    this.renderFog();
-  }
-
-  private renderFog(): void {
-    const graphics = this.fogGraphics;
-
-    if (!graphics || BENCHMARK_MODE) {
-      return;
-    }
-
-    graphics.clear();
-
-    for (let y = 0; y < MAP_SIZE; y += 1) {
-      for (let x = 0; x < MAP_SIZE; x += 1) {
-        const state = this.fog.stateAtCell(x, y);
-
-        if (state === "visible") {
-          continue;
-        }
-
-        const top = gridToScreen({ x, y }, this.projection);
-        const right = gridToScreen({ x: x + 1, y }, this.projection);
-        const bottom = gridToScreen(
-          { x: x + 1, y: y + 1 },
-          this.projection
-        );
-        const left = gridToScreen({ x, y: y + 1 }, this.projection);
-
-        graphics.fillStyle(
-          state === "unexplored" ? 0x020406 : 0x071017,
-          state === "unexplored" ? 0.94 : 0.58
-        );
-        graphics.beginPath();
-        graphics.moveTo(top.x, top.y);
-        graphics.lineTo(right.x, right.y);
-        graphics.lineTo(bottom.x, bottom.y);
-        graphics.lineTo(left.x, left.y);
-        graphics.closePath();
-        graphics.fillPath();
-      }
-    }
+    this.fogRenderer?.update(delta, snapshot);
   }
 
   private renderMinimap(snapshot: SimulationSnapshot): void {
@@ -1114,7 +949,7 @@ export class WorldScene extends Phaser.Scene {
 
     for (let y = 0; y < MAP_SIZE; y += 1) {
       for (let x = 0; x < MAP_SIZE; x += 1) {
-        const state = this.fog.stateAtCell(x, y);
+        const state = this.fogRenderer?.stateAtCell(x, y) ?? "unexplored";
 
         graphics.fillStyle(
           state === "unexplored"
@@ -1135,10 +970,10 @@ export class WorldScene extends Phaser.Scene {
 
     for (const resource of snapshot.resources) {
       if (
-        this.fog.stateAtPoint(
+        (this.fogRenderer?.stateAtPoint(
           resource.position.x,
           resource.position.y
-        ) === "unexplored"
+        ) ?? "unexplored") === "unexplored"
       ) {
         continue;
       }
@@ -1154,7 +989,7 @@ export class WorldScene extends Phaser.Scene {
     for (const building of snapshot.buildings) {
       if (
         building.ownerId !== "player-1" &&
-        !this.fog.isVisiblePoint(
+        !this.fogRenderer?.isVisiblePoint(
           building.position.x,
           building.position.y
         )
@@ -1177,7 +1012,7 @@ export class WorldScene extends Phaser.Scene {
     for (const unit of snapshot.units) {
       const visible =
         unit.ownerId === "player-1" ||
-        this.fog.isVisiblePoint(unit.position.x, unit.position.y);
+        this.fogRenderer?.isVisiblePoint(unit.position.x, unit.position.y);
 
       if (!visible) {
         continue;
@@ -1358,7 +1193,7 @@ export class WorldScene extends Phaser.Scene {
       ...benchmarkLines,
       BENCHMARK_MODE
         ? "fog: disabled"
-        : `vision: ${this.fog.visibleCellCount()} · explored: ${this.fog.exploredCellCount()}/${MAP_SIZE * MAP_SIZE}`
+        : `vision: ${(this.fogRenderer?.visibleCellCount() ?? 0)} · explored: ${(this.fogRenderer?.exploredCellCount() ?? 0)}/${MAP_SIZE * MAP_SIZE}`
     ]);
   }
 
@@ -1540,321 +1375,38 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private renderSnapshot(snapshot: SimulationSnapshot): void {
-    this.unitSelectionGraphics?.clear();
-
-    const liveUnitIds = new Set(snapshot.units.map((unit) => unit.id));
-    const liveBuildingIds = new Set(
-      snapshot.buildings.map((building) => building.id)
-    );
-
-    for (const [buildingId, view] of this.buildingViews) {
-      if (liveBuildingIds.has(buildingId)) {
-        continue;
-      }
-
-      this.buildingIdByObject.delete(view);
-      view.destroy();
-      this.buildingHealthBars.get(buildingId)?.destroy();
-      this.buildingHealthBars.delete(buildingId);
-      this.buildingLabels.get(buildingId)?.destroy();
-      this.buildingLabels.delete(buildingId);
-      this.lastBuildingHitPoints.delete(buildingId);
-      this.buildingViews.delete(buildingId);
-
-      if (this.selectedBuildingId === buildingId) {
-        this.selectedBuildingId = undefined;
-      }
-    }
-
-    for (const [unitId, view] of this.unitViews) {
-      if (liveUnitIds.has(unitId)) {
-        continue;
-      }
-
-      this.unitIdByObject.delete(view);
-      view.destroy();
-      this.unitHealthBars.get(unitId)?.destroy();
-      this.unitHealthBars.delete(unitId);
-      this.lastUnitHitPoints.delete(unitId);
-      this.unitViews.delete(unitId);
-      this.selectedUnitIds.delete(unitId);
-    }
-
-    for (const unit of snapshot.units) {
-      const view = this.ensureUnitView(unit);
-      const enemyVisible =
+    this.unitRenderer?.sync(
+      snapshot,
+      (unit) =>
         unit.ownerId === "player-1" ||
         BENCHMARK_MODE ||
-        this.fog.isVisiblePoint(unit.position.x, unit.position.y);
-      const healthBar = this.unitHealthBars.get(unit.id);
+        (this.fogRenderer?.isVisiblePoint(
+          unit.position.x,
+          unit.position.y
+        ) ?? false)
+    );
 
-      view.setVisible(enemyVisible);
-      healthBar?.setVisible(enemyVisible);
+    this.resourceRenderer?.sync(
+      snapshot.resources,
+      (resource) =>
+        BENCHMARK_MODE
+          ? "visible"
+          : (this.fogRenderer?.stateAtPoint(
+              resource.position.x,
+              resource.position.y
+            ) ?? "unexplored")
+    );
 
-      if (unit.ownerId !== "player-1") {
-        if (enemyVisible) {
-          view.setInteractive({ useHandCursor: true });
-        } else {
-          view.disableInteractive();
-        }
-      }
-
-      if (!enemyVisible) {
-        continue;
-      }
-
-      const point = gridToScreen(unit.position, this.projection);
-      view.setPosition(point.x, point.y - 7);
-      view.setDepth(point.y);
-
-      const definition = UNIT_DEFINITIONS.find(
-        (entry) => entry.kind === unit.kind
-      );
-      const maxHitPoints = definition?.maxHitPoints ?? unit.hitPoints;
-      const hpRatio = Phaser.Math.Clamp(unit.hitPoints / maxHitPoints, 0, 1);
-      healthBar?.setPosition(point.x, point.y - 23);
-      healthBar?.setDisplaySize(Math.max(1, 18 * hpRatio), 3);
-      healthBar?.setFillStyle(
-        hpRatio > 0.6 ? 0x7ecf7a : hpRatio > 0.3 ? 0xe0bd62 : 0xd4655d,
-        1
-      );
-      healthBar?.setDepth(point.y + 2);
-
-      const previousHitPoints = this.lastUnitHitPoints.get(unit.id);
-      if (
-        previousHitPoints !== undefined &&
-        unit.hitPoints < previousHitPoints
-      ) {
-        view.setTint(0xffffff);
-        this.time.delayedCall(90, () => {
-          if (view.active) {
-            view.setTint(unitTint(unit));
-          }
-        });
-      } else {
-        view.setTint(unitTint(unit));
-      }
-      this.lastUnitHitPoints.set(unit.id, unit.hitPoints);
-
-      const selected = this.selectedUnitIds.has(unit.id);
-      const activityColor =
-        unit.activity === "gathering"
-          ? 0x8fd18b
-          : unit.activity === "returning"
-            ? 0x8ec5e8
-            : unit.activity === "building"
-              ? 0xe4ad72
-              : unit.activity === "attacking"
-                ? 0xe98673
-                : 0xf7e7a9;
-
-      const activityPhase = snapshot.tick * 0.22;
-      const activityOffset =
-        unit.activity === "gathering" || unit.activity === "building"
-          ? Math.sin(activityPhase + unit.id.length) * 1.6
-          : 0;
-      const attackRotation =
-        unit.activity === "attacking"
-          ? Math.sin(activityPhase * 1.5 + unit.id.length) * 0.12
-          : 0;
-
-      view.setY(point.y - 7 + activityOffset);
-      view.setRotation(attackRotation);
-      view.setScale(selected ? 1.12 : 1);
-
-      if (selected && this.unitSelectionGraphics) {
-        this.unitSelectionGraphics.lineStyle(2, activityColor, 0.95);
-        this.unitSelectionGraphics.strokeEllipse(point.x, point.y + 2, 24, 10);
-      }
-    }
-
-    for (const resource of snapshot.resources) {
-      const view = this.resourceViews.get(resource.id);
-      const label = this.resourceLabels.get(resource.id);
-      const visibility = BENCHMARK_MODE
-        ? "visible"
-        : this.fog.stateAtPoint(
-            resource.position.x,
-            resource.position.y
-          );
-      const discovered = visibility !== "unexplored";
-
-      view?.setVisible(discovered);
-      label?.setVisible(discovered);
-
-      if (view) {
-        if (discovered) {
-          view.setInteractive({ useHandCursor: true });
-        } else {
-          view.disableInteractive();
-        }
-
-        view.setAlpha(
-          resource.amount <= 0
-            ? 0.2
-            : visibility === "explored"
-              ? 0.5
-              : 1
-        );
-      }
-
-      if (label) {
-        label.setText(resourceLabel(resource));
-        label.setAlpha(
-          resource.amount <= 0
-            ? 0.45
-            : visibility === "explored"
-              ? 0.5
-              : 1
-        );
-      }
-    }
-
-    for (const building of snapshot.buildings) {
-      const visible =
+    this.buildingRenderer?.sync(
+      snapshot,
+      (building) =>
         building.ownerId === "player-1" ||
         BENCHMARK_MODE ||
-        this.fog.isVisiblePoint(
+        (this.fogRenderer?.isVisiblePoint(
           building.position.x,
           building.position.y
-        );
-
-      if (visible) {
-        this.renderBuilding(building);
-      } else {
-        this.buildingViews.get(building.id)?.setVisible(false);
-        this.buildingHealthBars.get(building.id)?.setVisible(false);
-        this.buildingLabels.get(building.id)?.setVisible(false);
-      }
-    }
-  }
-
-  private renderBuilding(building: BuildingState): void {
-    const definition = BUILDING_DEFINITIONS.find(
-      (entry) => entry.kind === building.kind
+        ) ?? false)
     );
-
-    if (!definition) {
-      return;
-    }
-
-    const center = {
-      x: building.position.x + definition.footprint.width / 2,
-      y: building.position.y + definition.footprint.height / 2
-    };
-    const point = gridToScreen(center, this.projection);
-
-    let view = this.buildingViews.get(building.id);
-    let label = this.buildingLabels.get(building.id);
-
-    if (!view) {
-      view = this.add
-        .image(
-          point.x,
-          point.y - 10,
-          `building-${building.kind}`
-        )
-        .setOrigin(0.5, 0.8)
-        .setTint(buildingTint(building))
-        .setDepth(point.y)
-        .setInteractive({ useHandCursor: true });
-
-      const displayScale =
-        building.kind === "town-center"
-          ? 1
-          : building.kind === "barracks"
-            ? 0.86
-            : 0.78;
-      view.setScale(displayScale);
-
-      view.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-        if (pointer.leftButtonDown() && building.ownerId === "player-1") {
-          this.selectionController?.selectOnlyBuilding(building.id);
-        }
-      });
-      this.buildingIdByObject.set(view, building.id);
-
-      const healthBar = this.add
-        .rectangle(point.x, point.y - 48, 48, 4, 0x7ecf7a, 1)
-        .setOrigin(0.5, 0.5)
-        .setDepth(point.y + 2);
-      this.buildingHealthBars.set(building.id, healthBar);
-
-      label = this.add
-        .text(point.x, point.y + 10, "", {
-          fontFamily: "Inter, Arial, sans-serif",
-          fontSize: "10px",
-          color: "#f6f1df",
-          backgroundColor: "#091017bb",
-          padding: { x: 3, y: 1 }
-        })
-        .setOrigin(0.5, 0);
-
-      this.buildingViews.set(building.id, view);
-      this.buildingLabels.set(building.id, label);
-      this.lastBuildingHitPoints.set(building.id, building.hitPoints);
-    }
-
-    view.setVisible(true);
-    label?.setVisible(true);
-    this.buildingHealthBars.get(building.id)?.setVisible(true);
-    view.setPosition(point.x, point.y - 10);
-    view.setDepth(point.y);
-    view.setAlpha(0.35 + building.progress * 0.65);
-    view.setTint(buildingTint(building));
-
-    const maxHitPoints = definition.maxHitPoints;
-    const hpRatio = Phaser.Math.Clamp(building.hitPoints / maxHitPoints, 0, 1);
-    const healthBar = this.buildingHealthBars.get(building.id);
-    healthBar?.setPosition(point.x, point.y - 48);
-    healthBar?.setDisplaySize(Math.max(1, 48 * hpRatio), 4);
-    healthBar?.setFillStyle(
-      hpRatio > 0.6 ? 0x7ecf7a : hpRatio > 0.3 ? 0xe0bd62 : 0xd4655d,
-      1
-    );
-    healthBar?.setDepth(point.y + 2);
-
-    const previousHitPoints = this.lastBuildingHitPoints.get(building.id);
-    if (
-      previousHitPoints !== undefined &&
-      building.hitPoints < previousHitPoints
-    ) {
-      view.setTint(0xffffff);
-      this.time.delayedCall(100, () => {
-        if (view.active) {
-          view.setTint(buildingTint(building));
-        }
-      });
-    }
-    this.lastBuildingHitPoints.set(building.id, building.hitPoints);
-
-    const selected = this.selectedBuildingId === building.id;
-    view.setScale(
-      (building.kind === "town-center"
-        ? 1
-        : building.kind === "barracks"
-          ? 0.86
-          : 0.78) * (selected ? 1.06 : 1)
-    );
-
-    if (label) {
-      label.setPosition(point.x, point.y + 10);
-      label.setDepth(point.y + 1);
-      const queue = building.trainingQueue[0];
-      const queueLabel = queue
-        ? ` · ${queue.unitKind.toUpperCase()} ${Math.round(queue.progress * 100)}%`
-        : "";
-
-      const rallyLabel = building.rallyPoint
-        ? ` · RALLY`
-        : "";
-
-      label.setText(
-        `${definition.displayName.toUpperCase()} · HP ${Math.ceil(
-          building.hitPoints
-        )}/${definition.maxHitPoints}${queueLabel}${rallyLabel}`
-      );
-    }
   }
 
 }
@@ -1985,67 +1537,6 @@ function readSkirmishSeed(): number {
     : DEFAULT_SKIRMISH_SEED;
 }
 
-function unitVisionRadius(unit: UnitState): number {
-  if (unit.kind === "archer") {
-    return 6;
-  }
-
-  if (unit.kind === "spearman") {
-    return 5.4;
-  }
-
-  return unit.kind === "militia" ? 5.2 : 4.4;
-}
-
-function buildingVisionRadius(building: BuildingState): number {
-  if (building.kind === "town-center") {
-    return 6.4;
-  }
-
-  if (
-    building.kind === "barracks" ||
-    building.kind === "archery-range"
-  ) {
-    return 4.6;
-  }
-
-  return 3.6;
-}
-
-function unitTextureKey(kind: UnitKind): string {
-  if (kind === "militia") {
-    return "unit-militia";
-  }
-
-  if (kind === "archer") {
-    return "unit-archer";
-  }
-
-  if (kind === "spearman") {
-    return "unit-spearman";
-  }
-
-  return "unit-villager";
-}
-
-function resourceTextureKey(
-  kind: ResourceNodeState["kind"]
-): string {
-  return kind === "wood"
-    ? "resource-wood"
-    : kind === "food"
-      ? "resource-food"
-      : "resource-gold";
-}
-
-function buildingTint(building: BuildingState): number {
-  return building.ownerId === "player-1" ? 0xffffff : 0xd77a72;
-}
-
-function unitTint(unit: UnitState): number {
-  return unit.ownerId === "player-1" ? 0xffffff : 0xd77a72;
-}
-
 function unitColor(unit: UnitState): number {
   if (unit.ownerId !== "player-1") {
     return 0xb35c52;
@@ -2066,13 +1557,3 @@ function resourceColor(kind: ResourceNodeState["kind"]): number {
   return 0xd1ad3c;
 }
 
-function resourceLabel(resource: ResourceNodeState): string {
-  const name =
-    resource.kind === "wood"
-      ? "TREE"
-      : resource.kind === "food"
-        ? "BERRIES"
-        : "GOLD";
-
-  return `${name} ${Math.ceil(resource.amount)}`;
-}
