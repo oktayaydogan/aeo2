@@ -409,6 +409,15 @@ export class Simulation {
       this.units
     ).sort((a, b) => a.id.localeCompare(b.id));
 
+    if (!fromQueue && command.queueMode === "append") {
+      this.enqueueUnitOrderGroup(command, controllableUnits);
+      return;
+    }
+
+    if (!fromQueue) {
+      controllableUnits.forEach((unit) => this.clearQueuedOrders(unit));
+    }
+
     const formationTargets = this.movementSystem.resolveFormationTargets(
       command.target,
       controllableUnits.length
@@ -440,18 +449,28 @@ export class Simulation {
     command: GatherCommand,
     fromQueue = false
   ): void {
+    const villagers = selectOwnedVillagers(
+      command.unitIds,
+      command.playerId,
+      this.units
+    );
+
+    if (!fromQueue && command.queueMode === "append") {
+      this.enqueueUnitOrderGroup(command, villagers);
+      return;
+    }
+
     const resource = this.resources.get(command.resourceId);
 
     if (!resource || resource.amount <= ARRIVAL_EPSILON) {
       return;
     }
 
-    for (const unit of selectOwnedVillagers(
-      command.unitIds,
-      command.playerId,
-      this.units
-    )) {
+    if (!fromQueue) {
+      villagers.forEach((unit) => this.clearQueuedOrders(unit));
+    }
 
+    for (const unit of villagers) {
       unit.buildTask = undefined;
       unit.attackTask = undefined;
       unit.gatherTask = {
@@ -476,6 +495,17 @@ export class Simulation {
     command: BuildCommand,
     fromQueue = false
   ): void {
+    const builders = selectOwnedVillagers(
+      command.unitIds,
+      command.playerId,
+      this.units
+    );
+
+    if (!fromQueue && command.queueMode === "append") {
+      this.enqueueUnitOrderGroup(command, builders);
+      return;
+    }
+
     const definition = this.buildingDefinitions.get(command.buildingKind);
 
     if (!definition) {
@@ -491,11 +521,7 @@ export class Simulation {
       return;
     }
 
-    const buildersWithTargets = selectOwnedVillagers(
-      command.unitIds,
-      command.playerId,
-      this.units
-    ).map((unit) => ({
+    const buildersWithTargets = builders.map((unit) => ({
         unit,
         target: this.constructionSystem.findBuildApproachPosition(unit, definition, position)
       }))
@@ -516,6 +542,12 @@ export class Simulation {
 
     if (!hasResources(stockpile, definition.cost)) {
       return;
+    }
+
+    if (!fromQueue) {
+      buildersWithTargets.forEach(({ unit }) =>
+        this.clearQueuedOrders(unit)
+      );
     }
 
     spendResources(stockpile, definition.cost);
@@ -592,18 +624,29 @@ export class Simulation {
     command: AttackCommand,
     fromQueue = false
   ): void {
+    const attackers = selectCombatCapableUnits(
+      command.unitIds,
+      command.playerId,
+      this.units,
+      this.unitDefinitions
+    );
+
+    if (!fromQueue && command.queueMode === "append") {
+      this.enqueueUnitOrderGroup(command, attackers);
+      return;
+    }
+
     const target = this.units.get(command.targetUnitId);
 
     if (!canAttackUnitTarget(target, command.playerId)) {
       return;
     }
 
-    for (const unit of selectCombatCapableUnits(
-      command.unitIds,
-      command.playerId,
-      this.units,
-      this.unitDefinitions
-    )) {
+    if (!fromQueue) {
+      attackers.forEach((unit) => this.clearQueuedOrders(unit));
+    }
+
+    for (const unit of attackers) {
       const definition = this.unitDefinitions.get(unit.kind);
 
       if (!definition) {
@@ -625,6 +668,18 @@ export class Simulation {
     command: AttackBuildingCommand,
     fromQueue = false
   ): void {
+    const attackers = selectCombatCapableUnits(
+      command.unitIds,
+      command.playerId,
+      this.units,
+      this.unitDefinitions
+    );
+
+    if (!fromQueue && command.queueMode === "append") {
+      this.enqueueUnitOrderGroup(command, attackers);
+      return;
+    }
+
     const target = this.buildings.get(command.targetBuildingId);
 
     if (!canAttackBuildingTarget(target, command.playerId)) {
@@ -637,12 +692,11 @@ export class Simulation {
       return;
     }
 
-    for (const unit of selectCombatCapableUnits(
-      command.unitIds,
-      command.playerId,
-      this.units,
-      this.unitDefinitions
-    )) {
+    if (!fromQueue) {
+      attackers.forEach((unit) => this.clearQueuedOrders(unit));
+    }
+
+    for (const unit of attackers) {
       const definition = this.unitDefinitions.get(unit.kind);
 
       if (!definition) {
@@ -748,6 +802,139 @@ export class Simulation {
     }
 
     return null;
+  }
+
+  private enqueueUnitOrderGroup(
+    command: UnitActionCommand,
+    units: readonly RuntimeUnit[]
+  ): void {
+    if (units.length === 0) {
+      return;
+    }
+
+    const groupId = this.nextOrderGroupSequence;
+    this.nextOrderGroupSequence += 1;
+    const participants = new Set<string>();
+
+    for (const unit of [...units].sort((a, b) => a.id.localeCompare(b.id))) {
+      participants.add(unit.id);
+      unit.orderQueue.push({
+        groupId,
+        command: cloneUnitActionCommandForUnits(command, [unit.id])
+      });
+    }
+
+    this.queuedOrderGroups.set(groupId, participants);
+  }
+
+  private clearQueuedOrders(unit: RuntimeUnit): void {
+    for (const order of unit.orderQueue) {
+      const participants = this.queuedOrderGroups.get(order.groupId);
+
+      if (!participants) {
+        continue;
+      }
+
+      participants.delete(unit.id);
+
+      if (participants.size === 0) {
+        this.queuedOrderGroups.delete(order.groupId);
+      }
+    }
+
+    unit.orderQueue.splice(0);
+  }
+
+  private advanceUnitOrderQueues(): void {
+    const groupIds = [...this.queuedOrderGroups.keys()].sort(
+      (a, b) => a - b
+    );
+
+    for (const groupId of groupIds) {
+      const participants = this.queuedOrderGroups.get(groupId);
+
+      if (!participants) {
+        continue;
+      }
+
+      for (const unitId of [...participants]) {
+        if (!this.units.has(unitId)) {
+          participants.delete(unitId);
+        }
+      }
+
+      if (participants.size === 0) {
+        this.queuedOrderGroups.delete(groupId);
+        continue;
+      }
+
+      const units = [...participants]
+        .map((unitId) => this.units.get(unitId))
+        .filter((unit): unit is RuntimeUnit => unit !== undefined)
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+      if (
+        units.some(
+          (unit) =>
+            this.hasActiveUnitOrder(unit) ||
+            unit.orderQueue[0]?.groupId !== groupId
+        )
+      ) {
+        continue;
+      }
+
+      const firstOrder = units[0]?.orderQueue[0];
+
+      if (!firstOrder) {
+        this.queuedOrderGroups.delete(groupId);
+        continue;
+      }
+
+      for (const unit of units) {
+        unit.orderQueue.shift();
+      }
+
+      this.queuedOrderGroups.delete(groupId);
+      this.executeQueuedUnitActionCommand(
+        cloneUnitActionCommandForUnits(
+          firstOrder.command,
+          units.map((unit) => unit.id)
+        )
+      );
+    }
+  }
+
+  private executeQueuedUnitActionCommand(
+    command: UnitActionCommand
+  ): void {
+    switch (command.type) {
+      case "move":
+        this.applyMoveCommand(command, true);
+        break;
+      case "gather":
+        this.applyGatherCommand(command, true);
+        break;
+      case "build":
+        this.applyBuildCommand(command, true);
+        break;
+      case "attack":
+        this.applyAttackCommand(command, true);
+        break;
+      case "attack-building":
+        this.applyAttackBuildingCommand(command, true);
+        break;
+    }
+  }
+
+  private hasActiveUnitOrder(unit: RuntimeUnit): boolean {
+    return Boolean(
+      unit.gatherTask ||
+      unit.buildTask ||
+      unit.attackTask ||
+      unit.waypoints.length > 0 ||
+      unit.destination ||
+      unit.activity !== "idle"
+    );
   }
 
   private clearWorkTasks(unit: RuntimeUnit): void {
@@ -911,6 +1098,15 @@ function spendResources(
   stockpile.gold -= cost.gold;
 }
 
+function cloneRuntimeUnit(unit: RuntimeUnit): UnitState {
+  return {
+    ...cloneUnit(unit),
+    orderQueue: unit.orderQueue.map((order) => ({
+      type: order.command.type
+    }))
+  };
+}
+
 function cloneUnit(unit: UnitState): UnitState {
   return {
     id: unit.id,
@@ -980,6 +1176,46 @@ function cloneTechnologyDefinition(
     ...definition,
     cost: { ...definition.cost }
   };
+}
+
+function cloneUnitActionCommandForUnits(
+  command: UnitActionCommand,
+  unitIds: readonly string[]
+): UnitActionCommand {
+  switch (command.type) {
+    case "move":
+      return {
+        ...command,
+        unitIds: [...unitIds],
+        target: { ...command.target },
+        queueMode: "replace"
+      };
+    case "gather":
+      return {
+        ...command,
+        unitIds: [...unitIds],
+        queueMode: "replace"
+      };
+    case "build":
+      return {
+        ...command,
+        unitIds: [...unitIds],
+        position: { ...command.position },
+        queueMode: "replace"
+      };
+    case "attack":
+      return {
+        ...command,
+        unitIds: [...unitIds],
+        queueMode: "replace"
+      };
+    case "attack-building":
+      return {
+        ...command,
+        unitIds: [...unitIds],
+        queueMode: "replace"
+      };
+  }
 }
 
 function cloneCommand(command: GameCommand): GameCommand {
