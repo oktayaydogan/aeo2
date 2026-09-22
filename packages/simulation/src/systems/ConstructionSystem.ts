@@ -1,4 +1,5 @@
 import { GridNavigation } from "../GridNavigation";
+import { MIN_UNIT_DISTANCE } from "./MovementSystem";
 import type {
   BuildingDefinition,
   BuildingState,
@@ -8,6 +9,8 @@ import type {
 } from "../types";
 
 const ARRIVAL_EPSILON = 0.000001;
+const BUILD_START_RANGE = 0.35;
+const BUILD_RETENTION_RANGE = BUILD_START_RANGE + MIN_UNIT_DISTANCE;
 
 export interface BuildTask {
   buildingId: string;
@@ -53,8 +56,12 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
       }
 
       const target = task.target;
+      const interactionRange =
+        unit.activity === "building"
+          ? BUILD_RETENTION_RANGE
+          : BUILD_START_RANGE;
 
-      if (distance(unit.position, target) > 0.35) {
+      if (distance(unit.position, target) > interactionRange) {
         unit.activity = "moving";
 
         if (unit.waypoints.length === 0 && !this.assignPath(unit, target)) {
