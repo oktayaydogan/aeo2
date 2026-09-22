@@ -1,4 +1,5 @@
 import { GridNavigation } from "../GridNavigation";
+import { MIN_UNIT_DISTANCE } from "./MovementSystem";
 import type {
   BuildingDefinition,
   BuildingState,
@@ -159,6 +160,18 @@ export class CombatSystem<TUnit extends CombatUnit> {
 
     unit.activity = "attacking";
 
+    if (definition.attackRange <= 1.25) {
+      for (const approach of this.unitApproachCandidates(
+        unit,
+        target,
+        definition.attackRange
+      )) {
+        if (this.assignPath(unit, approach)) {
+          return;
+        }
+      }
+    }
+
     if (!this.assignPath(unit, target.position)) {
       this.stopAttackTask(unit);
     }
@@ -226,10 +239,15 @@ export class CombatSystem<TUnit extends CombatUnit> {
     if (targetDistance > definition.attackRange) {
       unit.activity = "attacking";
 
+      const destinationDriftTolerance =
+        definition.attackRange <= 1.25
+          ? Math.max(0.6, definition.attackRange * 1.1)
+          : 0.6;
       const needsRepath =
         unit.waypoints.length === 0 ||
         !unit.destination ||
-        distance(unit.destination, target.position) > 0.6;
+        distance(unit.destination, target.position) >
+          destinationDriftTolerance;
 
       if (needsRepath) {
         this.routeAttackerToTarget(unit, target, definition);
@@ -323,6 +341,50 @@ export class CombatSystem<TUnit extends CombatUnit> {
     if (building.hitPoints <= 0) {
       destroyedBuildings.set(building.id, unit.ownerId);
     }
+  }
+
+  private unitApproachCandidates(
+    unit: TUnit,
+    target: TUnit,
+    attackRange: number
+  ): Vector2[] {
+    const radius = Math.max(0.4, attackRange - 0.12);
+    const slotCount = Math.max(
+      4,
+      Math.min(
+        12,
+        Math.floor((Math.PI * 2 * radius) / MIN_UNIT_DISTANCE)
+      )
+    );
+    const attackers = [...this.units.values()]
+      .filter(
+        (candidate) =>
+          candidate.ownerId === unit.ownerId &&
+          candidate.attackTask?.targetType === "unit" &&
+          candidate.attackTask.targetId === target.id
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const rank = Math.max(
+      0,
+      attackers.findIndex((candidate) => candidate.id === unit.id)
+    );
+    const preferredSlot = rank % slotCount;
+    const candidates: Vector2[] = [];
+
+    for (let offset = 0; offset < slotCount; offset += 1) {
+      const slot = (preferredSlot + offset) % slotCount;
+      const angle = (slot / slotCount) * Math.PI * 2;
+      const candidate = {
+        x: target.position.x + Math.cos(angle) * radius,
+        y: target.position.y + Math.sin(angle) * radius
+      };
+
+      if (this.navigation.isWalkablePoint(candidate)) {
+        candidates.push(candidate);
+      }
+    }
+
+    return candidates;
   }
 
   private attackDamageFor(
