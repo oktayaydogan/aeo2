@@ -3,6 +3,7 @@ import {
   aiProfileFor,
   createSkirmishSearch,
   enemyResourcesFor,
+  mapSizeFor,
   playerResourcesFor,
   readSkirmishSettings
 } from "./skirmishSettings";
@@ -12,13 +13,15 @@ describe("skirmish settings", () => {
     const search = createSkirmishSearch({
       seed: 1337,
       aiDifficulty: "hard",
-      startingResources: "high"
+      startingResources: "high",
+      mapSize: "large"
     });
 
     expect(readSkirmishSettings(`?${search}`)).toEqual({
       seed: 1337,
       aiDifficulty: "hard",
-      startingResources: "high"
+      startingResources: "high",
+      mapSize: "large"
     });
   });
 
@@ -28,8 +31,15 @@ describe("skirmish settings", () => {
     ).toEqual({
       seed: 20260920,
       aiDifficulty: "standard",
-      startingResources: "standard"
+      startingResources: "standard",
+      mapSize: "standard"
     });
+  });
+
+  it("maps size presets to deterministic square map dimensions", () => {
+    expect(mapSizeFor("small")).toBe(16);
+    expect(mapSizeFor("standard")).toBe(20);
+    expect(mapSizeFor("large")).toBe(28);
   });
 
   it("keeps current standard AI and resource defaults intact", () => {
