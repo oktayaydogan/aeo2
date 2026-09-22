@@ -10,6 +10,7 @@ export interface HotkeyActions {
   trainArcher(): void;
   trainSpearman(): void;
   researchForgedWeapons(): void;
+  stopSelectedUnits(): void;
   restartEndedMatch(): void;
 }
 
@@ -34,6 +35,9 @@ export class HotkeyController {
     this.bind(Phaser.Input.Keyboard.KeyCodes.P, () => this.actions.trainSpearman());
     this.bind(Phaser.Input.Keyboard.KeyCodes.F, () =>
       this.actions.researchForgedWeapons()
+    );
+    this.bind(Phaser.Input.Keyboard.KeyCodes.SPACE, () =>
+      this.actions.stopSelectedUnits()
     );
     this.bind(Phaser.Input.Keyboard.KeyCodes.R, () =>
       this.actions.restartEndedMatch()
