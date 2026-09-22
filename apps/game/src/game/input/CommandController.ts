@@ -1,20 +1,35 @@
 import Phaser from "phaser";
+import {
+  resolveCommandIntent,
+  type CommandIntent
+} from "./commandIntent";
 
 export interface CommandInputActions {
   isPlacementActive(): boolean;
-  issueBuild(pointer: Phaser.Input.Pointer): void;
+  hasSelectedUnits(): boolean;
+  issueBuild(pointer: Phaser.Input.Pointer): boolean;
   drawPlacementPreview(pointer: Phaser.Input.Pointer): void;
-  findResource(currentlyOver: Phaser.GameObjects.GameObject[]): string | undefined;
-  findEnemyUnit(currentlyOver: Phaser.GameObjects.GameObject[]): string | undefined;
+  findResource(
+    currentlyOver: Phaser.GameObjects.GameObject[]
+  ): string | undefined;
+  findEnemyUnit(
+    currentlyOver: Phaser.GameObjects.GameObject[]
+  ): string | undefined;
   findEnemyBuilding(
     currentlyOver: Phaser.GameObjects.GameObject[]
   ): string | undefined;
   hasSelectedBuilding(): boolean;
-  issueGather(resourceId: string): void;
-  issueAttack(targetUnitId: string): void;
-  issueAttackBuilding(targetBuildingId: string): void;
-  issueRallyPoint(pointer: Phaser.Input.Pointer): void;
-  issueMove(pointer: Phaser.Input.Pointer): void;
+  issueGather(resourceId: string): boolean;
+  issueAttack(targetUnitId: string): boolean;
+  issueAttackBuilding(targetBuildingId: string): boolean;
+  issueRallyPoint(pointer: Phaser.Input.Pointer): boolean;
+  issueMove(pointer: Phaser.Input.Pointer): boolean;
+  setIntentCursor(intent: CommandIntent): void;
+  showCommandFeedback(
+    intent: CommandIntent,
+    pointer: Phaser.Input.Pointer,
+    accepted: boolean
+  ): void;
 }
 
 export class CommandController {
@@ -31,7 +46,8 @@ export class CommandController {
         currentlyOver: Phaser.GameObjects.GameObject[]
       ) => {
         if (pointer.leftButtonDown() && this.actions.isPlacementActive()) {
-          this.actions.issueBuild(pointer);
+          const accepted = this.actions.issueBuild(pointer);
+          this.actions.showCommandFeedback("build", pointer, accepted);
           return;
         }
 
@@ -39,28 +55,69 @@ export class CommandController {
           return;
         }
 
-        const resourceId = this.actions.findResource(currentlyOver);
-        const targetUnitId = this.actions.findEnemyUnit(currentlyOver);
-        const targetBuildingId = this.actions.findEnemyBuilding(currentlyOver);
+        const context = this.resolveContext(currentlyOver);
 
-        if (resourceId) {
-          this.actions.issueGather(resourceId);
-        } else if (targetUnitId) {
-          this.actions.issueAttack(targetUnitId);
-        } else if (targetBuildingId) {
-          this.actions.issueAttackBuilding(targetBuildingId);
+        if (context.resourceId) {
+          const accepted = this.actions.issueGather(context.resourceId);
+          this.actions.showCommandFeedback("gather", pointer, accepted);
+        } else if (context.targetUnitId) {
+          const accepted = this.actions.issueAttack(context.targetUnitId);
+          this.actions.showCommandFeedback("attack", pointer, accepted);
+        } else if (context.targetBuildingId) {
+          const accepted = this.actions.issueAttackBuilding(
+            context.targetBuildingId
+          );
+          this.actions.showCommandFeedback("attack", pointer, accepted);
         } else if (this.actions.hasSelectedBuilding()) {
-          this.actions.issueRallyPoint(pointer);
+          const accepted = this.actions.issueRallyPoint(pointer);
+          this.actions.showCommandFeedback("rally", pointer, accepted);
         } else {
-          this.actions.issueMove(pointer);
+          const accepted = this.actions.issueMove(pointer);
+          this.actions.showCommandFeedback("move", pointer, accepted);
         }
       }
     );
 
-    this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
-      if (this.actions.isPlacementActive()) {
-        this.actions.drawPlacementPreview(pointer);
+    this.input.on(
+      "pointermove",
+      (
+        pointer: Phaser.Input.Pointer,
+        currentlyOver: Phaser.GameObjects.GameObject[]
+      ) => {
+        if (this.actions.isPlacementActive()) {
+          this.actions.drawPlacementPreview(pointer);
+        }
+
+        const context = this.resolveContext(currentlyOver);
+        const intent = resolveCommandIntent({
+          placementActive: this.actions.isPlacementActive(),
+          hasSelectedUnits: this.actions.hasSelectedUnits(),
+          hasSelectedBuilding: this.actions.hasSelectedBuilding(),
+          overResource: context.resourceId !== undefined,
+          overEnemyUnit: context.targetUnitId !== undefined,
+          overEnemyBuilding: context.targetBuildingId !== undefined
+        });
+
+        this.actions.setIntentCursor(intent);
       }
+    );
+
+    this.input.on("gameout", () => {
+      this.actions.setIntentCursor("none");
     });
+  }
+
+  private resolveContext(
+    currentlyOver: Phaser.GameObjects.GameObject[]
+  ): {
+    resourceId?: string;
+    targetUnitId?: string;
+    targetBuildingId?: string;
+  } {
+    return {
+      resourceId: this.actions.findResource(currentlyOver),
+      targetUnitId: this.actions.findEnemyUnit(currentlyOver),
+      targetBuildingId: this.actions.findEnemyBuilding(currentlyOver)
+    };
   }
 }
