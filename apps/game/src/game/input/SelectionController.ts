@@ -1,12 +1,15 @@
 import Phaser from "phaser";
 import type { SimulationSnapshot } from "@aeo2/simulation";
 import { gridToScreen, type IsometricProjection, type Point2 } from "../isometric";
+import { applyUnitClickSelection } from "./selectionState";
 
 const DRAG_THRESHOLD_PX = 6;
+const DOUBLE_CLICK_WINDOW_MS = 320;
 
 interface DragSelectionState {
   startScreen: Point2;
   startWorld: Point2;
+  additive: boolean;
 }
 
 export interface SelectionControllerOptions {
@@ -16,16 +19,28 @@ export interface SelectionControllerOptions {
   projection: IsometricProjection;
   getSnapshot(): SimulationSnapshot;
   isPlacementActive(): boolean;
+  isWorldPointVisible(point: Point2): boolean;
   setSelectedBuildingId(buildingId: string | undefined): void;
   cancelPlacement(): void;
 }
 
 export class SelectionController {
   private dragSelection?: DragSelectionState;
+  private shiftKey?: Phaser.Input.Keyboard.Key;
+  private lastUnitClick?: {
+    unitId: string;
+    at: number;
+  };
 
   constructor(private readonly options: SelectionControllerOptions) {}
 
   configure(): void {
+    if (this.options.input.keyboard) {
+      this.shiftKey = this.options.input.keyboard.addKey(
+        Phaser.Input.Keyboard.KeyCodes.SHIFT
+      );
+    }
+
     this.options.input.on(
       "pointerdown",
       (
@@ -40,11 +55,18 @@ export class SelectionController {
           return;
         }
 
+        const additive = this.shiftKey?.isDown ?? false;
+
         this.options.setSelectedBuildingId(undefined);
-        this.options.selectedUnitIds.clear();
+
+        if (!additive) {
+          this.options.selectedUnitIds.clear();
+        }
+
         this.dragSelection = {
           startScreen: { x: pointer.x, y: pointer.y },
-          startWorld: { x: pointer.worldX, y: pointer.worldY }
+          startWorld: { x: pointer.worldX, y: pointer.worldY },
+          additive
         };
       }
     );
@@ -66,10 +88,51 @@ export class SelectionController {
     });
   }
 
-  selectOnlyUnit(unitId: string): void {
+  selectUnit(unitId: string, nowMs: number): void {
+    const snapshot = this.options.getSnapshot();
+    const clicked = snapshot.units.find(
+      (unit) => unit.id === unitId && unit.ownerId === "player-1"
+    );
+
+    if (!clicked) {
+      return;
+    }
+
+    const additive = this.shiftKey?.isDown ?? false;
+    const doubleClick =
+      this.lastUnitClick?.unitId === unitId &&
+      nowMs - this.lastUnitClick.at <= DOUBLE_CLICK_WINDOW_MS;
+
     this.options.setSelectedBuildingId(undefined);
-    this.options.selectedUnitIds.clear();
-    this.options.selectedUnitIds.add(unitId);
+
+    if (doubleClick) {
+      if (!additive) {
+        this.options.selectedUnitIds.clear();
+      }
+
+      for (const unit of snapshot.units) {
+        if (unit.ownerId !== "player-1" || unit.kind !== clicked.kind) {
+          continue;
+        }
+
+        const point = gridToScreen(unit.position, this.options.projection);
+
+        if (this.options.isWorldPointVisible(point)) {
+          this.options.selectedUnitIds.add(unit.id);
+        }
+      }
+    } else {
+      applyUnitClickSelection(
+        this.options.selectedUnitIds,
+        unitId,
+        additive
+      );
+    }
+
+    this.lastUnitClick = {
+      unitId,
+      at: nowMs
+    };
   }
 
   selectOnlyBuilding(buildingId: string): void {
@@ -97,8 +160,12 @@ export class SelectionController {
     const height = Math.abs(pointer.y - start.y);
 
     this.options.graphics.clear();
-    this.options.graphics.fillStyle(0xd9c56c, 0.1);
-    this.options.graphics.lineStyle(1, 0xf7e7a9, 0.9);
+    this.options.graphics.fillStyle(0xd9c56c, drag.additive ? 0.16 : 0.1);
+    this.options.graphics.lineStyle(
+      drag.additive ? 2 : 1,
+      drag.additive ? 0x8fd18b : 0xf7e7a9,
+      0.9
+    );
     this.options.graphics.fillRect(left, top, width, height);
     this.options.graphics.strokeRect(left, top, width, height);
   }

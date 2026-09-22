@@ -9,7 +9,7 @@ export interface UnitRendererOptions {
   projection: IsometricProjection;
   selectionRenderer: SelectionRenderer;
   selectedUnitIds: Set<string>;
-  onSelectOwnUnit(unitId: string): void;
+  onSelectOwnUnit(unitId: string, nowMs: number): void;
 }
 
 export class UnitRenderer {
@@ -157,7 +157,7 @@ export class UnitRenderer {
 
     image.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown() && unit.ownerId === "player-1") {
-        this.options.onSelectOwnUnit(unit.id);
+        this.options.onSelectOwnUnit(unit.id, this.options.scene.time.now);
       }
     });
 

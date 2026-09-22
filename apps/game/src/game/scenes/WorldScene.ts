@@ -253,8 +253,8 @@ export class WorldScene extends Phaser.Scene {
       projection: this.projection,
       selectionRenderer: this.selectionRenderer,
       selectedUnitIds: this.selectedUnitIds,
-      onSelectOwnUnit: (unitId) =>
-        this.selectionController?.selectOnlyUnit(unitId)
+      onSelectOwnUnit: (unitId, nowMs) =>
+        this.selectionController?.selectUnit(unitId, nowMs)
     });
     this.buildingRenderer = new BuildingRenderer({
       scene: this,
@@ -432,6 +432,8 @@ export class WorldScene extends Phaser.Scene {
       projection: this.projection,
       getSnapshot: () => this.simulation.getSnapshot(),
       isPlacementActive: () => this.placementKind !== undefined,
+      isWorldPointVisible: (point) =>
+        this.cameras.main.worldView.contains(point.x, point.y),
       setSelectedBuildingId: (buildingId) => {
         this.selectedBuildingId = buildingId;
       },
