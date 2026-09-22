@@ -17,6 +17,7 @@ import {
 } from "@aeo2/simulation";
 import {
   gridToScreen,
+  isometricMapBounds,
   screenToGrid,
   type IsometricProjection
 } from "../isometric";
@@ -329,6 +330,20 @@ export class WorldScene extends Phaser.Scene {
       .setVisible(BENCHMARK_MODE);
 
     this.configureInput();
+
+    const cameraBounds = isometricMapBounds(
+      MAP_SIZE,
+      MAP_SIZE,
+      this.projection,
+      320,
+      220
+    );
+    this.cameras.main.setBounds(
+      cameraBounds.x,
+      cameraBounds.y,
+      cameraBounds.width,
+      cameraBounds.height
+    );
 
     const initialFocus = BENCHMARK_MODE
       ? { x: MAP_SIZE / 2, y: MAP_SIZE / 2 }
