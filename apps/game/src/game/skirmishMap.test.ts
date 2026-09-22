@@ -9,6 +9,27 @@ describe("createSkirmishSetup", () => {
     );
   });
 
+  it("keeps supported map sizes deterministic and correctly dimensioned", () => {
+    for (const mapSize of [20, 28, 36]) {
+      const first = createSkirmishSetup(1337, mapSize);
+      const second = createSkirmishSetup(1337, mapSize);
+
+      expect(first).toEqual(second);
+      expect(first.map.width).toBe(mapSize);
+      expect(first.map.height).toBe(mapSize);
+      expect(first.enemy.townCenter.x).toBe(mapSize - 5);
+      expect(
+        first.resources.every(
+          (resource) =>
+            resource.position.x >= 0 &&
+            resource.position.x < mapSize &&
+            resource.position.y >= 0 &&
+            resource.position.y < mapSize
+        )
+      ).toBe(true);
+    }
+  });
+
   it("varies obstacle layouts for different seeds", () => {
     expect(createSkirmishSetup(1337).map.blocked).not.toEqual(
       createSkirmishSetup(7331).map.blocked
