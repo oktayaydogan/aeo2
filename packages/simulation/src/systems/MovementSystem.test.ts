@@ -273,10 +273,49 @@ describe("MovementSystem", () => {
     expect(navigation.isWalkablePoint(unit.position)).toBe(true);
   });
 
-  it("stops safely when a newly blocked route has no alternative", () => {
+  it("recovers a move order when a temporarily blocked route reopens", () => {
+    const navigation = new GridNavigation({ width: 8, height: 3 });
+    const system = new MovementSystem(20, navigation);
+    const unit = createUnit("unit-recover", { x: 1.5, y: 1.5 });
+    unit.activity = "moving";
+
+    expect(system.assignPath(unit, { x: 6.5, y: 1.5 })).toBe(true);
+
+    navigation.blockCells([
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+      { x: 2, y: 2 }
+    ]);
+
+    system.moveUnits([unit]);
+
+    expect(system.getRecoveryDiagnostics().activeRecoveries).toBe(1);
+    expect(unit.destination).toEqual({ x: 6.5, y: 1.5 });
+
+    navigation.unblockCells([
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+      { x: 2, y: 2 }
+    ]);
+
+    for (let tick = 0; tick < 80; tick += 1) {
+      system.moveUnits([unit]);
+    }
+
+    expect(unit.position.x).toBeCloseTo(6.5);
+    expect(unit.destination).toBeNull();
+    expect(unit.activity).toBe("idle");
+    expect(system.getRecoveryDiagnostics()).toMatchObject({
+      recoveredOrders: 1,
+      abandonedOrders: 0,
+      activeRecoveries: 0
+    });
+  });
+
+  it("abandons a permanently blocked move after a bounded retry budget", () => {
     const navigation = new GridNavigation({ width: 6, height: 3 });
     const system = new MovementSystem(20, navigation);
-    const unit = createUnit("unit-1", { x: 1.5, y: 1.5 });
+    const unit = createUnit("unit-blocked", { x: 1.5, y: 1.5 });
     unit.activity = "moving";
 
     expect(system.assignPath(unit, { x: 4.5, y: 1.5 })).toBe(true);
@@ -287,11 +326,62 @@ describe("MovementSystem", () => {
       { x: 2, y: 2 }
     ]);
 
-    system.moveUnits([unit]);
+    for (let tick = 0; tick < 80; tick += 1) {
+      system.moveUnits([unit]);
+    }
 
     expect(unit.destination).toBeNull();
     expect(unit.waypoints).toEqual([]);
+    expect(unit.activity).toBe("idle");
     expect(unit.position.x).toBeLessThan(2);
+    expect(system.getRecoveryDiagnostics()).toEqual({
+      recoveryRepathAttempts: 3,
+      recoveredOrders: 0,
+      abandonedOrders: 1,
+      activeRecoveries: 0
+    });
+  });
+
+  it("does not create recovery repath work for a 50-unit moving group", () => {
+    const navigation = new GridNavigation({ width: 80, height: 80 });
+    const system = new MovementSystem(20, navigation);
+    const units = Array.from({ length: 50 }, (_, index) =>
+      createUnit(`unit-${String(index).padStart(2, "0")}`, {
+        x: 2.5 + (index % 10),
+        y: 2.5 + Math.floor(index / 10)
+      })
+    );
+    const targets = system.resolveFormationTargets({ x: 50, y: 50 }, 50);
+    const reserved = new Set<number>();
+
+    units
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .forEach((unit, index) => {
+        unit.activity = "moving";
+        const assigned = system.assignFormationPath(
+          unit,
+          targets,
+          index,
+          reserved
+        );
+
+        expect(assigned).not.toBeNull();
+
+        if (assigned !== null) {
+          reserved.add(assigned);
+        }
+      });
+
+    for (let tick = 0; tick < 40; tick += 1) {
+      system.moveUnits(units);
+    }
+
+    expect(system.getRecoveryDiagnostics()).toEqual({
+      recoveryRepathAttempts: 0,
+      recoveredOrders: 0,
+      abandonedOrders: 0,
+      activeRecoveries: 0
+    });
   });
 
   it("assigns navigation paths and clears destination on an unreachable target", () => {
