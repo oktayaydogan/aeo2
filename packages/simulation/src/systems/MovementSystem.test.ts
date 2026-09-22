@@ -73,12 +73,20 @@ describe("MovementSystem", () => {
   it("separates overlapping units deterministically without render timing", () => {
     const first = createUnit("a", { x: 4, y: 4 });
     const second = createUnit("b", { x: 4, y: 4 });
+    const repeatedFirst = createUnit("a", { x: 4, y: 4 });
+    const repeatedSecond = createUnit("b", { x: 4, y: 4 });
+
     const system = new MovementSystem(
+      20,
+      new GridNavigation({ width: 10, height: 10 })
+    );
+    const repeatedSystem = new MovementSystem(
       20,
       new GridNavigation({ width: 10, height: 10 })
     );
 
     system.resolveUnitSeparation([first, second]);
+    repeatedSystem.resolveUnitSeparation([repeatedFirst, repeatedSecond]);
 
     const distance = Math.hypot(
       first.position.x - second.position.x,
@@ -86,7 +94,8 @@ describe("MovementSystem", () => {
     );
 
     expect(distance).toBeGreaterThanOrEqual(MIN_UNIT_DISTANCE - 0.000001);
-    expect(first.position.x).toBeGreaterThan(second.position.x);
+    expect(first.position).toEqual(repeatedFirst.position);
+    expect(second.position).toEqual(repeatedSecond.position);
   });
 
   it("assigns navigation paths and clears destination on an unreachable target", () => {
