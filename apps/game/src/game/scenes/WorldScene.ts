@@ -35,6 +35,7 @@ import { PROTOTYPE_MAP } from "../prototypeMap";
 import { createSkirmishSetup } from "../skirmishMap";
 import { createPrototypeTextures } from "../prototypeTextures";
 import { BuildingRenderer } from "../renderers/BuildingRenderer";
+import { CommandFeedbackRenderer } from "../renderers/CommandFeedbackRenderer";
 import { FogRenderer } from "../renderers/FogRenderer";
 import { ResourceRenderer } from "../renderers/ResourceRenderer";
 import { SelectionRenderer } from "../renderers/SelectionRenderer";
@@ -217,6 +218,7 @@ export class WorldScene extends Phaser.Scene {
   private hotkeyController?: HotkeyController;
   private selectionController?: SelectionController;
   private buildingRenderer?: BuildingRenderer;
+  private commandFeedbackRenderer?: CommandFeedbackRenderer;
   private fogRenderer?: FogRenderer;
   private resourceRenderer?: ResourceRenderer;
   private selectionRenderer?: SelectionRenderer;
@@ -244,6 +246,7 @@ export class WorldScene extends Phaser.Scene {
       .setDepth(100_000);
 
     this.selectionRenderer = new SelectionRenderer(this);
+    this.commandFeedbackRenderer = new CommandFeedbackRenderer(this);
     this.resourceRenderer = new ResourceRenderer(this, this.projection);
     this.unitRenderer = new UnitRenderer({
       scene: this,
@@ -399,6 +402,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.commandController = new CommandController(this.input, {
       isPlacementActive: () => this.placementKind !== undefined,
+      hasSelectedUnits: () => this.selectedUnitIds.size > 0,
       issueBuild: (pointer) => this.issueBuildCommand(pointer),
       drawPlacementPreview: (pointer) => this.drawPlacementPreview(pointer),
       findResource: (currentlyOver) =>
@@ -413,7 +417,11 @@ export class WorldScene extends Phaser.Scene {
       issueAttackBuilding: (targetBuildingId) =>
         this.issueAttackBuildingCommand(targetBuildingId),
       issueRallyPoint: (pointer) => this.issueRallyPointCommand(pointer),
-      issueMove: (pointer) => this.issueMoveCommand(pointer)
+      issueMove: (pointer) => this.issueMoveCommand(pointer),
+      setIntentCursor: (intent) =>
+        this.commandFeedbackRenderer?.setCursor(intent),
+      showCommandFeedback: (intent, pointer, accepted) =>
+        this.commandFeedbackRenderer?.show(intent, pointer, accepted)
     });
     this.commandController.configure();
 
@@ -491,30 +499,36 @@ export class WorldScene extends Phaser.Scene {
       : undefined;
   }
 
-  private issueAttackBuildingCommand(targetBuildingId: string): void {
-    if (this.selectedUnitIds.size === 0) {
-      return;
+  private issueAttackBuildingCommand(targetBuildingId: string): boolean {
+    const unitIds = this.selectedCombatUnitIds();
+
+    if (unitIds.length === 0) {
+      return false;
     }
 
     this.simulation.queueCommand({
       type: "attack-building",
       playerId: "player-1",
-      unitIds: [...this.selectedUnitIds],
+      unitIds,
       targetBuildingId
     });
+    return true;
   }
 
-  private issueAttackCommand(targetUnitId: string): void {
-    if (this.selectedUnitIds.size === 0) {
-      return;
+  private issueAttackCommand(targetUnitId: string): boolean {
+    const unitIds = this.selectedCombatUnitIds();
+
+    if (unitIds.length === 0) {
+      return false;
     }
 
     this.simulation.queueCommand({
       type: "attack",
       playerId: "player-1",
-      unitIds: [...this.selectedUnitIds],
+      unitIds,
       targetUnitId
     });
+    return true;
   }
 
   private issueTrainCommand(unitKind: UnitKind): void {
@@ -549,24 +563,28 @@ export class WorldScene extends Phaser.Scene {
     });
   }
 
-  private issueGatherCommand(resourceId: string): void {
-    if (this.selectedUnitIds.size === 0) {
-      return;
+  private issueGatherCommand(resourceId: string): boolean {
+    const unitIds = this.selectedVillagerIds();
+
+    if (unitIds.length === 0) {
+      return false;
     }
 
     this.simulation.queueCommand({
       type: "gather",
       playerId: "player-1",
-      unitIds: [...this.selectedUnitIds],
+      unitIds,
       resourceId
     });
+    return true;
   }
 
-  private issueBuildCommand(pointer: Phaser.Input.Pointer): void {
+  private issueBuildCommand(pointer: Phaser.Input.Pointer): boolean {
     const buildingKind = this.placementKind;
+    const unitIds = this.selectedVillagerIds();
 
-    if (!buildingKind || this.selectedUnitIds.size === 0) {
-      return;
+    if (!buildingKind || unitIds.length === 0) {
+      return false;
     }
 
     const target = screenToGrid(
@@ -577,7 +595,7 @@ export class WorldScene extends Phaser.Scene {
     this.simulation.queueCommand({
       type: "build",
       playerId: "player-1",
-      unitIds: [...this.selectedUnitIds],
+      unitIds,
       buildingKind,
       position: {
         x: Phaser.Math.Clamp(Math.floor(target.x), 0, MAP_SIZE - 1),
@@ -586,10 +604,12 @@ export class WorldScene extends Phaser.Scene {
     });
 
     this.setPlacementMode(undefined);
+    return true;
   }
 
   private setPlacementMode(kind: BuildingKind | undefined): void {
     this.placementKind = kind;
+    this.commandFeedbackRenderer?.setCursor(kind ? "build" : "none");
     this.placementGraphics?.clear();
     if (this.selectionController) {
       this.selectionController.cancelDrag();
@@ -656,11 +676,11 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private issueRallyPointCommand(pointer: Phaser.Input.Pointer): void {
+  private issueRallyPointCommand(pointer: Phaser.Input.Pointer): boolean {
     const buildingId = this.selectedBuildingId;
 
     if (!buildingId) {
-      return;
+      return false;
     }
 
     const target = screenToGrid(
@@ -677,11 +697,12 @@ export class WorldScene extends Phaser.Scene {
         y: Phaser.Math.Clamp(target.y, 0, MAP_SIZE - 0.01)
       }
     });
+    return true;
   }
 
-  private issueMoveCommand(pointer: Phaser.Input.Pointer): void {
+  private issueMoveCommand(pointer: Phaser.Input.Pointer): boolean {
     if (this.selectedUnitIds.size === 0) {
-      return;
+      return false;
     }
 
     const target = screenToGrid(
@@ -698,6 +719,37 @@ export class WorldScene extends Phaser.Scene {
         y: Phaser.Math.Clamp(target.y, 0, MAP_SIZE - 0.01)
       }
     });
+    return true;
+  }
+
+  private selectedVillagerIds(): string[] {
+    const selected = this.selectedUnitIds;
+
+    return this.simulation
+      .getSnapshot()
+      .units.filter(
+        (unit) => selected.has(unit.id) && unit.kind === "villager"
+      )
+      .map((unit) => unit.id);
+  }
+
+  private selectedCombatUnitIds(): string[] {
+    const selected = this.selectedUnitIds;
+
+    return this.simulation
+      .getSnapshot()
+      .units.filter((unit) => {
+        if (!selected.has(unit.id)) {
+          return false;
+        }
+
+        const definition = UNIT_DEFINITIONS.find(
+          (entry) => entry.kind === unit.kind
+        );
+
+        return (definition?.attackDamage ?? 0) > 0;
+      })
+      .map((unit) => unit.id);
   }
 
   private updateVisibility(
