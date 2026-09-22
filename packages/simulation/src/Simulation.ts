@@ -393,15 +393,25 @@ export class Simulation {
       controllableUnits.length
     );
 
+    const reservedTargetIndices = new Set<number>();
+
     controllableUnits.forEach((unit, index) => {
       this.clearWorkTasks(unit);
       unit.activity = "moving";
 
-      const requestedTarget = formationTargets[index] ?? command.target;
+      const assignedTargetIndex = this.movementSystem.assignFormationPath(
+        unit,
+        formationTargets,
+        index,
+        reservedTargetIndices
+      );
 
-      if (!this.movementSystem.assignPath(unit, requestedTarget)) {
+      if (assignedTargetIndex === null) {
         unit.activity = "idle";
+        return;
       }
+
+      reservedTargetIndices.add(assignedTargetIndex);
     });
   }
 
