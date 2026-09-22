@@ -21,6 +21,7 @@ import {
   type IsometricProjection
 } from "../isometric";
 import { CameraController } from "../input/CameraController";
+import { initialCameraZoom } from "../input/cameraViewport";
 import { CommandController } from "../input/CommandController";
 import { ControlGroupManager } from "../input/controlGroups";
 import { HotkeyController } from "../input/HotkeyController";
@@ -318,8 +319,21 @@ export class WorldScene extends Phaser.Scene {
 
     this.configureInput();
 
-    this.cameras.main.setZoom(1);
-    this.cameras.main.centerOn(700, 420);
+    const initialFocus = BENCHMARK_MODE
+      ? { x: MAP_SIZE / 2, y: MAP_SIZE / 2 }
+      : { x: 5, y: 9.5 };
+    const initialFocusWorld = gridToScreen(
+      initialFocus,
+      this.projection
+    );
+
+    this.cameras.main.setZoom(
+      initialCameraZoom(this.scale.width, this.scale.height)
+    );
+    this.cameras.main.centerOn(
+      initialFocusWorld.x,
+      initialFocusWorld.y
+    );
 
     this.updateVisibility(FOG_UPDATE_INTERVAL_MS, initialSnapshot);
     this.renderSnapshot(initialSnapshot);
