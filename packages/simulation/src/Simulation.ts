@@ -883,7 +883,7 @@ export class Simulation {
         continue;
       }
 
-      const firstOrder = units[0]?.orderQueue[0];
+      const firstOrder = units[0]?.queuedOrders[0];
 
       if (!firstOrder) {
         this.queuedOrderGroups.delete(groupId);
