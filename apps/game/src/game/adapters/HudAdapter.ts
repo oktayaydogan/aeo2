@@ -7,6 +7,10 @@ import type {
   UnitKind
 } from "@aeo2/simulation";
 import { getHudCommandAvailability } from "../hudState";
+import {
+  describeBuildingWork,
+  describeUnitWork
+} from "../hudWorkState";
 
 type HudCommand =
   | "house"
@@ -198,25 +202,10 @@ export class HudAdapter {
       const definition = BUILDING_DEFINITIONS.find(
         (entry) => entry.kind === selectedBuilding.kind
       );
-      const trainingQueue =
-        selectedBuilding.trainingQueue.length > 0
-          ? selectedBuilding.trainingQueue
-              .map(
-                (item, index) =>
-                  `${index + 1}. ${item.unitKind} ${Math.round(
-                    item.progress * 100
-                  )}%`
-              )
-              .join("   ")
-          : "Queue empty";
-      const researchItem = selectedBuilding.researchQueue?.[0];
-      const researchQueue = researchItem
-        ? `Research ${researchItem.technologyKind} ${Math.round(
-            researchItem.progress * 100
-          )}%`
-        : playerTechnologies.length > 0
-          ? `Tech ${playerTechnologies.join(", ")}`
-          : "No research";
+      const work = describeBuildingWork(
+        selectedBuilding,
+        playerTechnologies
+      );
 
       this.selectionTitleText.setText(
         definition?.displayName ?? selectedBuilding.kind
@@ -225,13 +214,12 @@ export class HudAdapter {
         `HP ${Math.ceil(selectedBuilding.hitPoints)}/${
           definition?.maxHitPoints ?? selectedBuilding.hitPoints
         }`,
-        trainingQueue,
-        researchQueue,
+        ...work,
         selectedBuilding.rallyPoint
-          ? `Rally ${selectedBuilding.rallyPoint.x.toFixed(
+          ? `Rally · ${selectedBuilding.rallyPoint.x.toFixed(
               1
             )}, ${selectedBuilding.rallyPoint.y.toFixed(1)}`
-          : "Right-click ground to set rally"
+          : "Rally · Right-click ground"
       ]);
     } else if (selectedUnits.length > 0) {
       const primary = selectedUnits[0];
@@ -250,15 +238,19 @@ export class HudAdapter {
         0
       );
 
+      const work = describeUnitWork(selectedUnits);
+
       this.selectionTitleText.setText(
         selectedUnits.length === 1
           ? label
           : `${selectedUnits.length} × ${label}`
       );
       this.selectionDetailsText.setText([
-        `Average HP ${averageHp.toFixed(0)}`,
-        `Activity ${primary?.activity ?? "idle"}`,
-        carrying > 0 ? `Carrying ${carrying.toFixed(1)}` : "Ready"
+        `Average HP · ${averageHp.toFixed(0)}`,
+        ...work,
+        carrying > 0
+          ? `Carrying · ${carrying.toFixed(1)}`
+          : "Cargo · Empty"
       ]);
     } else {
       this.selectionTitleText.setText("No selection");
