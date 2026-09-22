@@ -452,6 +452,7 @@ export class WorldScene extends Phaser.Scene {
       trainSpearman: () => this.issueTrainCommand("spearman"),
       researchForgedWeapons: () =>
         this.issueResearchCommand("forged-weapons"),
+      stopSelectedUnits: () => this.issueStopCommand(),
       restartEndedMatch: () => {
         if (this.simulation.getSnapshot().match.status === "ended") {
           window.location.reload();
@@ -700,6 +701,18 @@ export class WorldScene extends Phaser.Scene {
       }
     });
     return true;
+  }
+
+  private issueStopCommand(): void {
+    if (this.selectedUnitIds.size === 0) {
+      return;
+    }
+
+    this.simulation.queueCommand({
+      type: "stop",
+      playerId: "player-1",
+      unitIds: [...this.selectedUnitIds]
+    });
   }
 
   private issueMoveCommand(pointer: Phaser.Input.Pointer): boolean {
