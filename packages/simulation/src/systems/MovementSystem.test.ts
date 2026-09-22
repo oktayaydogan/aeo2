@@ -70,6 +70,66 @@ describe("MovementSystem", () => {
     expect(new Set(first.map((point) => `${point.x},${point.y}`)).size).toBe(50);
   });
 
+  it("resolves 50 formation slots to deterministic walkable positions around blocked terrain", () => {
+    const navigation = new GridNavigation({
+      width: 20,
+      height: 20,
+      blocked: [
+        { x: 9, y: 9 },
+        { x: 10, y: 9 },
+        { x: 11, y: 9 },
+        { x: 9, y: 10 },
+        { x: 10, y: 10 },
+        { x: 11, y: 10 },
+        { x: 9, y: 11 },
+        { x: 10, y: 11 },
+        { x: 11, y: 11 }
+      ]
+    });
+    const system = new MovementSystem(20, navigation);
+
+    const first = system.resolveFormationTargets({ x: 10.5, y: 10.5 }, 50);
+    const second = system.resolveFormationTargets({ x: 10.5, y: 10.5 }, 50);
+
+    expect(first).toEqual(second);
+    expect(first).toHaveLength(50);
+
+    for (const target of first) {
+      expect(navigation.isWalkablePoint(target)).toBe(true);
+    }
+
+    for (let left = 0; left < first.length; left += 1) {
+      for (let right = left + 1; right < first.length; right += 1) {
+        const a = first[left];
+        const b = first[right];
+
+        if (!a || !b) {
+          continue;
+        }
+
+        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(
+          MIN_UNIT_DISTANCE - 0.000001
+        );
+      }
+    }
+  });
+
+  it("keeps group formation slots inside the map near an edge", () => {
+    const navigation = new GridNavigation({ width: 10, height: 10 });
+    const system = new MovementSystem(20, navigation);
+    const targets = system.resolveFormationTargets({ x: 0.1, y: 0.1 }, 20);
+
+    expect(targets).toHaveLength(20);
+
+    for (const target of targets) {
+      expect(target.x).toBeGreaterThanOrEqual(0);
+      expect(target.y).toBeGreaterThanOrEqual(0);
+      expect(target.x).toBeLessThan(10);
+      expect(target.y).toBeLessThan(10);
+      expect(navigation.isWalkablePoint(target)).toBe(true);
+    }
+  });
+
   it("separates overlapping units deterministically without render timing", () => {
     const first = createUnit("a", { x: 4, y: 4 });
     const second = createUnit("b", { x: 4, y: 4 });
