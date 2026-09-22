@@ -54,6 +54,28 @@ describe("createSkirmishSetup", () => {
     }
   });
 
+  it("supports deterministic small, standard, and large map sizes", () => {
+    for (const size of [16, 20, 28]) {
+      const first = createSkirmishSetup(1337, size);
+      const second = createSkirmishSetup(1337, size);
+
+      expect(first).toEqual(second);
+      expect(first.map.width).toBe(size);
+      expect(first.map.height).toBe(size);
+      expect(first.player.townCenter.x).toBeGreaterThanOrEqual(0);
+      expect(first.enemy.townCenter.x).toBeLessThan(size);
+      expect(
+        first.resources.every(
+          (resource) =>
+            resource.position.x >= 0 &&
+            resource.position.x < size &&
+            resource.position.y >= 0 &&
+            resource.position.y < size
+        )
+      ).toBe(true);
+    }
+  });
+
   it("never blocks the guaranteed center corridor", () => {
     for (const seed of [1, 2, 3, 10, 42, 1337, 20260920]) {
       const setup = createSkirmishSetup(seed);
