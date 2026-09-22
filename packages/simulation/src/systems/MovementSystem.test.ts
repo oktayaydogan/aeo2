@@ -227,6 +227,32 @@ describe("MovementSystem", () => {
     expect(target.position).toEqual(beforeTarget);
   });
 
+  it("falls back to a reachable unreserved formation slot", () => {
+    const blocked = Array.from({ length: 10 }, (_, y) => ({ x: 5, y }));
+    const navigation = new GridNavigation({
+      width: 10,
+      height: 10,
+      blocked
+    });
+    const system = new MovementSystem(20, navigation);
+    const unit = createUnit("unit-1", { x: 2.5, y: 2.5 });
+    const targets = [
+      { x: 7.5, y: 2.5 },
+      { x: 3.5, y: 2.5 }
+    ];
+
+    const assignedIndex = system.assignFormationPath(
+      unit,
+      targets,
+      0,
+      new Set()
+    );
+
+    expect(assignedIndex).toBe(1);
+    expect(unit.destination).toEqual({ x: 3.5, y: 2.5 });
+    expect(unit.waypoints.length).toBeGreaterThan(0);
+  });
+
   it("assigns navigation paths and clears destination on an unreachable target", () => {
     const unit = createUnit("unit-1", { x: 1.5, y: 1.5 });
     const navigation = new GridNavigation({
