@@ -11,6 +11,66 @@ import type {
 } from "../types";
 
 describe("ConstructionSystem", () => {
+  it("keeps a separated builder contributing instead of repeatedly repathing", () => {
+    const definition: BuildingDefinition = {
+      kind: "house",
+      displayName: "House",
+      footprint: { width: 2, height: 2 },
+      cost: { wood: 25, food: 0, gold: 0 },
+      buildTimeSeconds: 1,
+      maxHitPoints: 100,
+      populationProvided: 5
+    };
+    const building: BuildingState = {
+      id: "house-1",
+      ownerId: "p1",
+      kind: "house",
+      position: { x: 4, y: 4 },
+      progress: 0,
+      completed: false,
+      hitPoints: 1,
+      trainingQueue: [],
+      rallyPoint: null
+    };
+    const unit: ConstructionUnit = {
+      id: "villager-1",
+      ownerId: "p1",
+      kind: "villager",
+      position: { x: 2.72, y: 4.5 },
+      destination: null,
+      speed: 2.4,
+      hitPoints: 25,
+      activity: "building",
+      cargo: null,
+      waypoints: [],
+      buildTask: {
+        buildingId: building.id,
+        target: { x: 3.5, y: 4.5 }
+      }
+    };
+    let repathCount = 0;
+    const buildings = new Map([[building.id, building]]);
+    const units = new Map([[unit.id, unit]]);
+    const system = new ConstructionSystem(
+      20,
+      new GridNavigation({ width: 20, height: 20 }),
+      buildings,
+      new Map([[definition.kind, definition]]),
+      new Map(),
+      units,
+      () => {
+        repathCount += 1;
+        return true;
+      }
+    );
+
+    system.step(units.values());
+
+    expect(repathCount).toBe(0);
+    expect(unit.activity).toBe("building");
+    expect(building.progress).toBeGreaterThan(0);
+  });
+
   it("advances construction to completion without Simulation orchestration", () => {
     const definition: BuildingDefinition = {
       kind: "house",
