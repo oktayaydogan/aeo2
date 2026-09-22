@@ -18,9 +18,12 @@ import {
 import {
   gridToScreen,
   screenToGrid,
-  type IsometricProjection,
-  type Point2
+  type IsometricProjection
 } from "../isometric";
+import { CameraController } from "../input/CameraController";
+import { CommandController } from "../input/CommandController";
+import { HotkeyController } from "../input/HotkeyController";
+import { SelectionController } from "../input/SelectionController";
 import {
   DEFAULT_BENCHMARK_BUDGET,
   summarizeBenchmark,
@@ -34,7 +37,6 @@ import { FogOfWar } from "../visibility";
 
 const MAP_SIZE = 20;
 const UNIT_RADIUS = 6;
-const DRAG_THRESHOLD_PX = 6;
 const FOG_UPDATE_INTERVAL_MS = 100;
 const MINIMAP_SIZE = 160;
 const MINIMAP_MARGIN = 14;
@@ -85,11 +87,6 @@ const ACTIVE_BLOCKED_CELL_KEYS = new Set(
   )
 );
 
-
-interface DragSelectionState {
-  startScreen: Point2;
-  startWorld: Point2;
-}
 
 interface HudButton {
   background: Phaser.GameObjects.Rectangle;
@@ -238,7 +235,10 @@ export class WorldScene extends Phaser.Scene {
   private readonly benchmarkFpsSamples: number[] = [];
   private readonly benchmarkSimulationSamples: number[] = [];
   private benchmarkResult?: BenchmarkResult;
-  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
+  private cameraController?: CameraController;
+  private commandController?: CommandController;
+  private hotkeyController?: HotkeyController;
+  private selectionController?: SelectionController;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private unitSelectionGraphics?: Phaser.GameObjects.Graphics;
   private placementGraphics?: Phaser.GameObjects.Graphics;
@@ -253,15 +253,8 @@ export class WorldScene extends Phaser.Scene {
   private objectiveText?: Phaser.GameObjects.Text;
   private matchText?: Phaser.GameObjects.Text;
   private readonly hudButtons: HudButton[] = [];
-  private dragSelection?: DragSelectionState;
   private placementKind?: BuildingKind;
   private selectedBuildingId?: string;
-  private wasd?: {
-    up: Phaser.Input.Keyboard.Key;
-    down: Phaser.Input.Keyboard.Key;
-    left: Phaser.Input.Keyboard.Key;
-    right: Phaser.Input.Keyboard.Key;
-  };
 
   constructor() {
     super("world");
@@ -392,7 +385,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    this.updateCamera(delta);
+    this.cameraController?.update(delta);
     this.accumulatorMs += Math.min(delta, 250);
 
     while (this.accumulatorMs >= this.simulation.tickDurationMs) {
@@ -515,7 +508,7 @@ export class WorldScene extends Phaser.Scene {
 
     image.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown() && unit.ownerId === "player-1") {
-        this.selectOnly(unit.id);
+        this.selectionController?.selectOnlyUnit(unit.id);
       }
     });
 
@@ -667,130 +660,65 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private configureInput(): void {
-    if (this.input.keyboard) {
-      this.cursors = this.input.keyboard.createCursorKeys();
-      this.wasd = {
-        up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-        down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-        left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-        right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
-      };
-
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.H)
-        .on("down", () => this.setPlacementMode("house"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.B)
-        .on("down", () => this.setPlacementMode("barracks"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.X)
-        .on("down", () => this.setPlacementMode("archery-range"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
-        .on("down", () => this.setPlacementMode(undefined));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.M)
-        .on("down", () => this.issueTrainCommand("militia"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.V)
-        .on("down", () => this.issueTrainCommand("villager"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.C)
-        .on("down", () => this.issueTrainCommand("archer"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.P)
-        .on("down", () => this.issueTrainCommand("spearman"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.F)
-        .on("down", () => this.issueResearchCommand("forged-weapons"));
-      this.input.keyboard
-        .addKey(Phaser.Input.Keyboard.KeyCodes.R)
-        .on("down", () => {
-          if (this.simulation.getSnapshot().match.status === "ended") {
-            window.location.reload();
-          }
-        });
+    if (!this.selectionGraphics) {
+      throw new Error("Selection graphics must exist before input is configured.");
     }
 
-    this.input.on(
-      "pointerdown",
-      (
-        pointer: Phaser.Input.Pointer,
-        currentlyOver: Phaser.GameObjects.GameObject[]
-      ) => {
-        if (pointer.leftButtonDown() && this.placementKind) {
-          this.issueBuildCommand(pointer);
-          return;
-        }
+    this.cameraController = new CameraController(this);
+    this.cameraController.configure();
 
-        if (pointer.rightButtonDown()) {
-          const resourceId = this.findResourceUnderPointer(currentlyOver);
-          const targetUnitId = this.findEnemyUnitUnderPointer(currentlyOver);
-          const targetBuildingId =
-            this.findEnemyBuildingUnderPointer(currentlyOver);
-
-          if (resourceId) {
-            this.issueGatherCommand(resourceId);
-          } else if (targetUnitId) {
-            this.issueAttackCommand(targetUnitId);
-          } else if (targetBuildingId) {
-            this.issueAttackBuildingCommand(targetBuildingId);
-          } else if (this.selectedBuildingId) {
-            this.issueRallyPointCommand(pointer);
-          } else {
-            this.issueMoveCommand(pointer);
-          }
-
-          return;
-        }
-
-        if (!pointer.leftButtonDown() || currentlyOver.length > 0) {
-          return;
-        }
-
-        this.selectedBuildingId = undefined;
-        this.selectedUnitIds.clear();
-        this.dragSelection = {
-          startScreen: { x: pointer.x, y: pointer.y },
-          startWorld: { x: pointer.worldX, y: pointer.worldY }
-        };
-      }
-    );
-
-    this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
-      if (this.placementKind) {
-        this.drawPlacementPreview(pointer);
-      }
-
-      if (!this.dragSelection || !pointer.leftButtonDown()) {
-        return;
-      }
-
-      this.drawSelectionBox(pointer);
+    this.commandController = new CommandController(this.input, {
+      isPlacementActive: () => this.placementKind !== undefined,
+      issueBuild: (pointer) => this.issueBuildCommand(pointer),
+      drawPlacementPreview: (pointer) => this.drawPlacementPreview(pointer),
+      findResource: (currentlyOver) =>
+        this.findResourceUnderPointer(currentlyOver),
+      findEnemyUnit: (currentlyOver) =>
+        this.findEnemyUnitUnderPointer(currentlyOver),
+      findEnemyBuilding: (currentlyOver) =>
+        this.findEnemyBuildingUnderPointer(currentlyOver),
+      hasSelectedBuilding: () => this.selectedBuildingId !== undefined,
+      issueGather: (resourceId) => this.issueGatherCommand(resourceId),
+      issueAttack: (targetUnitId) => this.issueAttackCommand(targetUnitId),
+      issueAttackBuilding: (targetBuildingId) =>
+        this.issueAttackBuildingCommand(targetBuildingId),
+      issueRallyPoint: (pointer) => this.issueRallyPointCommand(pointer),
+      issueMove: (pointer) => this.issueMoveCommand(pointer)
     });
+    this.commandController.configure();
 
-    this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
-      if (!this.dragSelection) {
-        return;
-      }
-
-      this.finishSelectionBox(pointer);
+    this.selectionController = new SelectionController({
+      input: this.input,
+      graphics: this.selectionGraphics,
+      selectedUnitIds: this.selectedUnitIds,
+      projection: this.projection,
+      getSnapshot: () => this.simulation.getSnapshot(),
+      isPlacementActive: () => this.placementKind !== undefined,
+      setSelectedBuildingId: (buildingId) => {
+        this.selectedBuildingId = buildingId;
+      },
+      cancelPlacement: () => this.setPlacementMode(undefined)
     });
+    this.selectionController.configure();
 
-    this.input.on(
-      "wheel",
-      (
-        _pointer: Phaser.Input.Pointer,
-        _currentlyOver: Phaser.GameObjects.GameObject[],
-        _deltaX: number,
-        deltaY: number
-      ) => {
-        const camera = this.cameras.main;
-        camera.setZoom(
-          Phaser.Math.Clamp(camera.zoom - deltaY * 0.001, 0.55, 1.8)
-        );
+    this.hotkeyController = new HotkeyController(this.input.keyboard, {
+      placeHouse: () => this.setPlacementMode("house"),
+      placeBarracks: () => this.setPlacementMode("barracks"),
+      placeArcheryRange: () => this.setPlacementMode("archery-range"),
+      cancelPlacement: () => this.setPlacementMode(undefined),
+      trainMilitia: () => this.issueTrainCommand("militia"),
+      trainVillager: () => this.issueTrainCommand("villager"),
+      trainArcher: () => this.issueTrainCommand("archer"),
+      trainSpearman: () => this.issueTrainCommand("spearman"),
+      researchForgedWeapons: () =>
+        this.issueResearchCommand("forged-weapons"),
+      restartEndedMatch: () => {
+        if (this.simulation.getSnapshot().match.status === "ended") {
+          window.location.reload();
+        }
       }
-    );
+    });
+    this.hotkeyController.configure();
   }
 
   private findResourceUnderPointer(
@@ -953,8 +881,11 @@ export class WorldScene extends Phaser.Scene {
   private setPlacementMode(kind: BuildingKind | undefined): void {
     this.placementKind = kind;
     this.placementGraphics?.clear();
-    this.dragSelection = undefined;
-    this.selectionGraphics?.clear();
+    if (this.selectionController) {
+      this.selectionController.cancelDrag();
+    } else {
+      this.selectionGraphics?.clear();
+    }
   }
 
   private drawPlacementPreview(pointer: Phaser.Input.Pointer): void {
@@ -1057,66 +988,6 @@ export class WorldScene extends Phaser.Scene {
         y: Phaser.Math.Clamp(target.y, 0, MAP_SIZE - 0.01)
       }
     });
-  }
-
-  private drawSelectionBox(pointer: Phaser.Input.Pointer): void {
-    if (!this.dragSelection || !this.selectionGraphics) {
-      return;
-    }
-
-    const start = this.dragSelection.startScreen;
-    const left = Math.min(start.x, pointer.x);
-    const top = Math.min(start.y, pointer.y);
-    const width = Math.abs(pointer.x - start.x);
-    const height = Math.abs(pointer.y - start.y);
-
-    this.selectionGraphics.clear();
-    this.selectionGraphics.fillStyle(0xd9c56c, 0.1);
-    this.selectionGraphics.lineStyle(1, 0xf7e7a9, 0.9);
-    this.selectionGraphics.fillRect(left, top, width, height);
-    this.selectionGraphics.strokeRect(left, top, width, height);
-  }
-
-  private finishSelectionBox(pointer: Phaser.Input.Pointer): void {
-    const drag = this.dragSelection;
-
-    this.dragSelection = undefined;
-    this.selectionGraphics?.clear();
-
-    if (!drag) {
-      return;
-    }
-
-    const screenDistance = Math.hypot(
-      pointer.x - drag.startScreen.x,
-      pointer.y - drag.startScreen.y
-    );
-
-    if (screenDistance < DRAG_THRESHOLD_PX) {
-      return;
-    }
-
-    const left = Math.min(drag.startWorld.x, pointer.worldX);
-    const right = Math.max(drag.startWorld.x, pointer.worldX);
-    const top = Math.min(drag.startWorld.y, pointer.worldY);
-    const bottom = Math.max(drag.startWorld.y, pointer.worldY);
-
-    for (const unit of this.simulation.getSnapshot().units) {
-      if (unit.ownerId !== "player-1") {
-        continue;
-      }
-
-      const point = gridToScreen(unit.position, this.projection);
-
-      if (
-        point.x >= left &&
-        point.x <= right &&
-        point.y >= top &&
-        point.y <= bottom
-      ) {
-        this.selectedUnitIds.add(unit.id);
-      }
-    }
   }
 
   private updateVisibility(
@@ -1668,24 +1539,6 @@ export class WorldScene extends Phaser.Scene {
       .setVisible(true);
   }
 
-  private updateCamera(delta: number): void {
-    const camera = this.cameras.main;
-    const speed = (520 * delta) / 1000 / camera.zoom;
-
-    if (this.wasd?.up.isDown || this.cursors?.up.isDown) {
-      camera.scrollY -= speed;
-    }
-    if (this.wasd?.down.isDown || this.cursors?.down.isDown) {
-      camera.scrollY += speed;
-    }
-    if (this.wasd?.left.isDown || this.cursors?.left.isDown) {
-      camera.scrollX -= speed;
-    }
-    if (this.wasd?.right.isDown || this.cursors?.right.isDown) {
-      camera.scrollX += speed;
-    }
-  }
-
   private renderSnapshot(snapshot: SimulationSnapshot): void {
     this.unitSelectionGraphics?.clear();
 
@@ -1916,9 +1769,7 @@ export class WorldScene extends Phaser.Scene {
 
       view.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
         if (pointer.leftButtonDown() && building.ownerId === "player-1") {
-          this.selectedBuildingId = building.id;
-          this.selectedUnitIds.clear();
-          this.setPlacementMode(undefined);
+          this.selectionController?.selectOnlyBuilding(building.id);
         }
       });
       this.buildingIdByObject.set(view, building.id);
@@ -2006,11 +1857,6 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private selectOnly(unitId: string): void {
-    this.selectedBuildingId = undefined;
-    this.selectedUnitIds.clear();
-    this.selectedUnitIds.add(unitId);
-  }
 }
 
 function createInitialUnits(): UnitState[] {
