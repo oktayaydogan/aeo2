@@ -195,6 +195,15 @@ function separatePair<TUnit extends MovementUnit>(
   b: TUnit,
   navigation: GridNavigation
 ): void {
+  // Units are not navigation obstacles. Applying hard separation while either
+  // unit is following a path can cancel forward progress every tick when units
+  // meet head-on or squeeze through the same narrow route. Let moving units
+  // pass through each other and resolve any remaining overlap once both have
+  // finished their current path.
+  if (a.waypoints.length > 0 || b.waypoints.length > 0) {
+    return;
+  }
+
   let dx = b.position.x - a.position.x;
   let dy = b.position.y - a.position.y;
   let pairDistance = Math.hypot(dx, dy);
