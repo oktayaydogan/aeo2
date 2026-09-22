@@ -24,6 +24,46 @@ export class MovementSystem<TUnit extends MovementUnit> {
     return createReachableFormationTargets(target, count, this.navigation);
   }
 
+  assignFormationPath(
+    unit: TUnit,
+    targets: readonly Vector2[],
+    preferredIndex: number,
+    reservedTargetIndices: ReadonlySet<number>,
+    maxPathAttempts = 4
+  ): number | null {
+    if (targets.length === 0) {
+      return null;
+    }
+
+    let pathAttempts = 0;
+
+    for (let offset = 0; offset < targets.length; offset += 1) {
+      const targetIndex = (preferredIndex + offset) % targets.length;
+
+      if (reservedTargetIndices.has(targetIndex)) {
+        continue;
+      }
+
+      const target = targets[targetIndex];
+
+      if (!target) {
+        continue;
+      }
+
+      pathAttempts += 1;
+
+      if (this.assignPath(unit, target)) {
+        return targetIndex;
+      }
+
+      if (pathAttempts >= maxPathAttempts) {
+        break;
+      }
+    }
+
+    return null;
+  }
+
   moveUnits(units: Iterable<TUnit>): void {
     const maxDistancePerTick = 1 / this.tickRate;
 
