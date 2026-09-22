@@ -3,6 +3,8 @@ import Phaser from "phaser";
 const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 1.8;
 const ZOOM_SENSITIVITY = 0.001;
+const DOM_DELTA_LINE = 1;
+const DOM_DELTA_PAGE = 2;
 
 export function nextCameraZoom(
   currentZoom: number,
@@ -19,11 +21,11 @@ export function normalizeWheelDelta(
   deltaMode: number,
   viewportHeight: number
 ): number {
-  if (deltaMode === WheelEvent.DOM_DELTA_LINE) {
+  if (deltaMode === DOM_DELTA_LINE) {
     return deltaY * 16;
   }
 
-  if (deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+  if (deltaMode === DOM_DELTA_PAGE) {
     return deltaY * viewportHeight;
   }
 
