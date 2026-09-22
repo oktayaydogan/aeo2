@@ -80,7 +80,7 @@ interface RuntimeUnit extends UnitState {
   buildTask?: BuildTask;
   attackTask?: AttackTask;
   attackCooldownTicks: number;
-  orderQueue: QueuedUnitOrder[];
+  queuedOrders: QueuedUnitOrder[];
 }
 
 export class Simulation {
@@ -237,7 +237,7 @@ export class Simulation {
         ...cloneUnit(unit),
         waypoints: [],
         attackCooldownTicks: 0,
-        orderQueue: []
+        queuedOrders: []
       });
       this.ensureStockpile(unit.ownerId);
       this.nextUnitSequence += 1;
@@ -737,7 +737,7 @@ export class Simulation {
       cargo: null,
       waypoints: [],
       attackCooldownTicks: 0,
-      orderQueue: []
+      queuedOrders: []
     };
 
     this.units.set(unitId, spawnedUnit);
@@ -818,7 +818,7 @@ export class Simulation {
 
     for (const unit of [...units].sort((a, b) => a.id.localeCompare(b.id))) {
       participants.add(unit.id);
-      unit.orderQueue.push({
+      unit.queuedOrders.push({
         groupId,
         command: cloneUnitActionCommandForUnits(command, [unit.id])
       });
@@ -828,7 +828,7 @@ export class Simulation {
   }
 
   private clearQueuedOrders(unit: RuntimeUnit): void {
-    for (const order of unit.orderQueue) {
+    for (const order of unit.queuedOrders) {
       const participants = this.queuedOrderGroups.get(order.groupId);
 
       if (!participants) {
@@ -842,7 +842,7 @@ export class Simulation {
       }
     }
 
-    unit.orderQueue.splice(0);
+    unit.queuedOrders.splice(0);
   }
 
   private advanceUnitOrderQueues(): void {
@@ -877,7 +877,7 @@ export class Simulation {
         units.some(
           (unit) =>
             this.hasActiveUnitOrder(unit) ||
-            unit.orderQueue[0]?.groupId !== groupId
+            unit.queuedOrders[0]?.groupId !== groupId
         )
       ) {
         continue;
@@ -891,7 +891,7 @@ export class Simulation {
       }
 
       for (const unit of units) {
-        unit.orderQueue.shift();
+        unit.queuedOrders.shift();
       }
 
       this.queuedOrderGroups.delete(groupId);
@@ -1101,7 +1101,7 @@ function spendResources(
 function cloneRuntimeUnit(unit: RuntimeUnit): UnitState {
   return {
     ...cloneUnit(unit),
-    orderQueue: unit.orderQueue.map((order) => ({
+    orderQueue: unit.queuedOrders.map((order) => ({
       type: order.command.type
     }))
   };
