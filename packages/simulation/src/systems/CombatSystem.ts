@@ -196,6 +196,20 @@ export class CombatSystem<TUnit extends CombatUnit> {
       return true;
     }
 
+    if (unitDefinition.attackRange <= 1.25) {
+      for (const approach of this.buildingApproachCandidates(
+        unit,
+        target,
+        targetDefinition
+      )) {
+        unit.activity = "attacking";
+
+        if (this.assignPath(unit, approach)) {
+          return true;
+        }
+      }
+    }
+
     const approach = this.findBuildingApproach(
       unit,
       targetDefinition,
@@ -341,6 +355,66 @@ export class CombatSystem<TUnit extends CombatUnit> {
     if (building.hitPoints <= 0) {
       destroyedBuildings.set(building.id, unit.ownerId);
     }
+  }
+
+  private buildingApproachCandidates(
+    unit: TUnit,
+    target: BuildingState,
+    definition: BuildingDefinition
+  ): Vector2[] {
+    const candidates: Vector2[] = [];
+
+    for (let x = 0; x < definition.footprint.width; x += 1) {
+      candidates.push(
+        { x: target.position.x + x + 0.5, y: target.position.y - 0.5 },
+        {
+          x: target.position.x + x + 0.5,
+          y: target.position.y + definition.footprint.height + 0.5
+        }
+      );
+    }
+
+    for (let y = 0; y < definition.footprint.height; y += 1) {
+      candidates.push(
+        { x: target.position.x - 0.5, y: target.position.y + y + 0.5 },
+        {
+          x: target.position.x + definition.footprint.width + 0.5,
+          y: target.position.y + y + 0.5
+        }
+      );
+    }
+
+    const walkable = candidates
+      .filter((candidate) => this.navigation.isWalkablePoint(candidate))
+      .sort(
+        (a, b) =>
+          distance(unit.position, a) - distance(unit.position, b) ||
+          a.y - b.y ||
+          a.x - b.x
+      );
+
+    if (walkable.length <= 1) {
+      return walkable;
+    }
+
+    const attackers = [...this.units.values()]
+      .filter(
+        (candidate) =>
+          candidate.ownerId === unit.ownerId &&
+          candidate.attackTask?.targetType === "building" &&
+          candidate.attackTask.targetId === target.id
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const rank = Math.max(
+      0,
+      attackers.findIndex((candidate) => candidate.id === unit.id)
+    );
+    const preferredIndex = rank % walkable.length;
+
+    return [
+      ...walkable.slice(preferredIndex),
+      ...walkable.slice(0, preferredIndex)
+    ];
   }
 
   private unitApproachCandidates(
