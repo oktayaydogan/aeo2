@@ -2281,6 +2281,32 @@ Configure:
 
 ---
 
+## 31.1 Current execution focus — visible-first client pass (2026-09-22)
+
+The current implementation is mechanically ahead of its player-facing presentation. Until the local skirmish reads and feels like a coherent RTS to a first-time player, execution order should favor changes that are immediately visible or tactile in the live browser build.
+
+This is an **execution-order override**, not a redefinition of launch severity. A hidden P0 simulation/platform item may still jump ahead when it directly blocks one of these flows or protects correctness/security.
+
+Current order:
+
+1. **GAME-012** — finish visible command cursors/order confirmation/rejection feedback.
+2. **GAME-011** — selection ergonomics; implementation is merged, retain manual browser verification as the remaining gate.
+3. **GAME-010** — control groups 1–9 and camera centering.
+4. **GAME-013** — readable unit/production/research queue and progress presentation.
+5. **GAME-030** — deterministic skirmish setup screen so the product has a real pre-match flow instead of dropping directly into a prototype match.
+6. **ART-001**, then **ART-002/ART-003/ART-004** — establish original production art direction and replace prototype terrain/resources/units/buildings/interaction visuals in dependency order.
+7. **GAME-061** and adjacent presentation polish — loading/startup/failure states once the primary skirmish loop is visually coherent.
+
+During this pass:
+
+- prefer a player-visible slice over an unrelated hidden refactor when both are unblocked;
+- do not weaken deterministic simulation, authoritative command validation, replay/network compatibility, security or test gates to accelerate presentation;
+- keep production art original to AEO2 and preserve asset provenance;
+- continue to distinguish **implemented** from **browser-verified**;
+- supporting simulation work remains eligible when it directly unlocks visible behavior such as queues, formations, placement validity or progress feedback.
+
+---
+
 # 32. Parallel batch after M0
 
 Once M0 conflict reduction is merged, start these concurrently.
