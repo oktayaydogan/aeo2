@@ -77,6 +77,12 @@ export interface AttackBuildingCommand {
   queueMode?: UnitOrderQueueMode;
 }
 
+export interface StopCommand {
+  type: "stop";
+  playerId: PlayerId;
+  unitIds: readonly string[];
+}
+
 export type GameCommand<
   TBuildingKind extends string = string,
   TUnitKind extends string = string,
@@ -89,7 +95,8 @@ export type GameCommand<
   | ResearchCommand<TTechnologyKind>
   | SetRallyPointCommand
   | AttackCommand
-  | AttackBuildingCommand;
+  | AttackBuildingCommand
+  | StopCommand;
 
 export interface CommandEnvelope<TCommand extends GameCommand = GameCommand> {
   protocolVersion: ProtocolVersion;
