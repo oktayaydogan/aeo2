@@ -7,6 +7,54 @@ import type {
 } from "../types";
 
 describe("EconomySystem", () => {
+  it("keeps a separated villager gathering instead of repeatedly repathing", () => {
+    const resources = new Map<string, ResourceNodeState>([
+      [
+        "wood-1",
+        {
+          id: "wood-1",
+          kind: "wood",
+          position: { x: 0, y: 0 },
+          amount: 20
+        }
+      ]
+    ]);
+    const unit: EconomyUnit = {
+      id: "villager-1",
+      ownerId: "p1",
+      kind: "villager",
+      position: { x: 0.82, y: 0 },
+      destination: null,
+      speed: 2.4,
+      hitPoints: 25,
+      activity: "gathering",
+      cargo: null,
+      waypoints: [],
+      gatherTask: {
+        resourceId: "wood-1",
+        phase: "gathering"
+      }
+    };
+    let repathCount = 0;
+    const system = new EconomySystem(
+      20,
+      resources,
+      new Map(),
+      () => ({ wood: 0, food: 0, gold: 0 }),
+      () => {
+        repathCount += 1;
+        return true;
+      }
+    );
+
+    system.step([unit]);
+
+    expect(repathCount).toBe(0);
+    expect(unit.activity).toBe("gathering");
+    expect(unit.gatherTask?.phase).toBe("gathering");
+    expect(resources.get("wood-1")?.amount).toBeLessThan(20);
+  });
+
   it("preserves deterministic gather, carry, drop-off, and repeat accounting", () => {
     const resources = new Map<string, ResourceNodeState>([
       [
