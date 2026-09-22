@@ -1306,3 +1306,52 @@ describe("Phase 2 military counters", () => {
     ).toBe(37);
   });
 });
+
+
+describe("group movement determinism", () => {
+  it("assigns the same formation regardless of command unit-id order", () => {
+    const units = [
+      villager("villager-b", "player-1", { x: 2, y: 2 }),
+      villager("villager-a", "player-1", { x: 2.5, y: 2 }),
+      villager("villager-c", "player-1", { x: 3, y: 2 })
+    ];
+    const first = new Simulation({
+      tickRate: 20,
+      map: { width: 12, height: 12 },
+      units
+    });
+    const second = new Simulation({
+      tickRate: 20,
+      map: { width: 12, height: 12 },
+      units
+    });
+
+    first.queueCommand({
+      type: "move",
+      playerId: "player-1",
+      unitIds: ["villager-b", "villager-a", "villager-c"],
+      target: { x: 8, y: 8 }
+    });
+    second.queueCommand({
+      type: "move",
+      playerId: "player-1",
+      unitIds: ["villager-c", "villager-b", "villager-a"],
+      target: { x: 8, y: 8 }
+    });
+
+    first.step();
+    second.step();
+
+    const positions = (simulation: Simulation) =>
+      simulation
+        .getSnapshot()
+        .units.map((unit) => ({
+          id: unit.id,
+          position: unit.position,
+          destination: unit.destination
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+
+    expect(positions(first)).toEqual(positions(second));
+  });
+});
