@@ -53,19 +53,19 @@ interface PlayerKnowledge {
   rememberedResources: Map<string, AiRememberedResource>;
 }
 
-export interface AiKnowledgeSystemOptions {
+export interface AiKnowledgeSystemOptions<TUnit extends UnitState> {
   width: number;
   height: number;
-  units: Map<string, UnitState>;
+  units: Map<string, TUnit>;
   buildings: Map<string, BuildingState>;
   resources: Map<string, ResourceNodeState>;
   buildingDefinitions: Map<string, BuildingDefinition>;
 }
 
-export class AiKnowledgeSystem {
+export class AiKnowledgeSystem<TUnit extends UnitState> {
   private readonly players = new Map<string, PlayerKnowledge>();
 
-  constructor(private readonly options: AiKnowledgeSystemOptions) {}
+  constructor(private readonly options: AiKnowledgeSystemOptions<TUnit>) {}
 
   update(playerId: string, enemyPlayerId: string, tick: number): void {
     const knowledge = this.ensurePlayer(playerId);
@@ -177,10 +177,17 @@ export class AiKnowledgeSystem {
     );
   }
 
-  getRememberedEnemyBuildingIds(playerId: string): readonly string[] {
+  getRememberedEnemyBuildings(
+    playerId: string
+  ): readonly AiRememberedBuilding[] {
     return [
-      ...this.ensurePlayer(playerId).rememberedEnemyBuildings.keys()
-    ].sort();
+      ...this.ensurePlayer(playerId).rememberedEnemyBuildings.values()
+    ]
+      .map((building) => ({
+        ...building,
+        position: { ...building.position }
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id));
   }
 
   getKnownResources(playerId: string): readonly AiRememberedResource[] {
