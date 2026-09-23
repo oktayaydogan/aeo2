@@ -1,5 +1,6 @@
 import type {
   BuildingState,
+  CommandRejectionReason,
   PlayerPopulationState,
   ResourceStockpile,
   TechnologyDefinition,
@@ -50,24 +51,62 @@ export interface TrainingValidationInput {
   maxTrainingQueue: number;
 }
 
-export function canStartTraining({
+export function canStartTraining(
+  input: TrainingValidationInput
+): boolean {
+  return trainingStructuralRejectionReason(input) === null;
+}
+
+export function trainingRejectionReason(
+  input: TrainingValidationInput & {
+    stockpile: ResourceStockpile;
+  }
+): CommandRejectionReason | null {
+  const structural = trainingStructuralRejectionReason(input);
+
+  if (structural) {
+    return structural;
+  }
+
+  if (!input.definition) {
+    return "invalid-target";
+  }
+
+  return hasResources(input.stockpile, input.definition.cost)
+    ? null
+    : "insufficient-resources";
+}
+
+function trainingStructuralRejectionReason({
   building,
   definition,
   playerId,
   canBuildingTrainUnit,
   population,
   maxTrainingQueue
-}: TrainingValidationInput): boolean {
-  if (
-    !building ||
-    building.ownerId !== playerId ||
-    !building.completed ||
-    !definition ||
-    !canBuildingTrainUnit ||
-    (building.researchQueue?.length ?? 0) > 0 ||
-    building.trainingQueue.length >= maxTrainingQueue
-  ) {
-    return false;
+}: TrainingValidationInput): CommandRejectionReason | null {
+  if (!building || building.ownerId !== playerId) {
+    return "invalid-building";
+  }
+
+  if (!building.completed) {
+    return "building-incomplete";
+  }
+
+  if (!definition) {
+    return "invalid-target";
+  }
+
+  if (!canBuildingTrainUnit) {
+    return "wrong-building";
+  }
+
+  if ((building.researchQueue?.length ?? 0) > 0) {
+    return "building-busy";
+  }
+
+  if (building.trainingQueue.length >= maxTrainingQueue) {
+    return "queue-full";
   }
 
   if (
@@ -76,10 +115,10 @@ export function canStartTraining({
       definition.populationCost >
     population.cap
   ) {
-    return false;
+    return "population-cap";
   }
 
-  return true;
+  return null;
 }
 
 export interface ResearchValidationInput {
@@ -89,26 +128,66 @@ export interface ResearchValidationInput {
   alreadyResearched: boolean;
 }
 
-export function canStartResearch({
+export function canStartResearch(
+  input: ResearchValidationInput
+): boolean {
+  return researchStructuralRejectionReason(input) === null;
+}
+
+export function researchRejectionReason(
+  input: ResearchValidationInput & {
+    stockpile: ResourceStockpile;
+  }
+): CommandRejectionReason | null {
+  const structural = researchStructuralRejectionReason(input);
+
+  if (structural) {
+    return structural;
+  }
+
+  if (!input.definition) {
+    return "invalid-technology";
+  }
+
+  return hasResources(input.stockpile, input.definition.cost)
+    ? null
+    : "insufficient-resources";
+}
+
+function researchStructuralRejectionReason({
   building,
   definition,
   playerId,
   alreadyResearched
-}: ResearchValidationInput): boolean {
-  if (
-    !building ||
-    building.ownerId !== playerId ||
-    !building.completed ||
-    !definition ||
-    building.kind !== definition.buildingKind ||
-    building.trainingQueue.length > 0 ||
-    (building.researchQueue?.length ?? 0) > 0 ||
-    alreadyResearched
-  ) {
-    return false;
+}: ResearchValidationInput): CommandRejectionReason | null {
+  if (!building || building.ownerId !== playerId) {
+    return "invalid-building";
   }
 
-  return true;
+  if (!building.completed) {
+    return "building-incomplete";
+  }
+
+  if (!definition) {
+    return "invalid-technology";
+  }
+
+  if (building.kind !== definition.buildingKind) {
+    return "wrong-building";
+  }
+
+  if (
+    building.trainingQueue.length > 0 ||
+    (building.researchQueue?.length ?? 0) > 0
+  ) {
+    return "building-busy";
+  }
+
+  if (alreadyResearched) {
+    return "already-researched";
+  }
+
+  return null;
 }
 
 export function canSetRallyPoint(
