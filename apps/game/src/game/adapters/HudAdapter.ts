@@ -6,7 +6,6 @@ import type {
   TechnologyKind,
   UnitKind
 } from "@aeo2/simulation";
-import { fixedViewportTransform } from "../fixedViewport";
 import { getHudCommandAvailability } from "../hudState";
 import {
   describeBuildingWork,
@@ -41,7 +40,6 @@ export interface HudAdapterOptions {
 }
 
 export class HudAdapter {
-  private readonly viewportContainer: Phaser.GameObjects.Container;
   private readonly graphics: Phaser.GameObjects.Graphics;
   private readonly economyText: Phaser.GameObjects.Text;
   private readonly objectiveText: Phaser.GameObjects.Text;
@@ -53,15 +51,10 @@ export class HudAdapter {
   constructor(private readonly options: HudAdapterOptions) {
     const scene = options.scene;
 
-    this.viewportContainer = scene.add
-      .container(0, 0)
-      .setScrollFactor(0)
-      .setDepth(100_000);
-
     this.graphics = scene.add
       .graphics()
-      .setScrollFactor(1)
-      .setDepth(0);
+      .setScrollFactor(0)
+      .setDepth(100_000);
 
     this.economyText = scene.add
       .text(18, 14, "", {
@@ -70,8 +63,8 @@ export class HudAdapter {
         fontStyle: "bold",
         color: "#f5ead0"
       })
-      .setScrollFactor(1)
-      .setDepth(4);
+      .setScrollFactor(0)
+      .setDepth(100_004);
 
     this.objectiveText = scene.add
       .text(scene.scale.width / 2, 16, "Destroy the enemy Town Center", {
@@ -80,8 +73,8 @@ export class HudAdapter {
         color: "#d9cfae"
       })
       .setOrigin(0.5, 0)
-      .setScrollFactor(1)
-      .setDepth(4);
+      .setScrollFactor(0)
+      .setDepth(100_004);
 
     this.selectionTitleText = scene.add
       .text(24, scene.scale.height - 108, "No selection", {
@@ -90,8 +83,8 @@ export class HudAdapter {
         fontStyle: "bold",
         color: "#f5ead0"
       })
-      .setScrollFactor(1)
-      .setDepth(4);
+      .setScrollFactor(0)
+      .setDepth(100_004);
 
     this.selectionDetailsText = scene.add
       .text(24, scene.scale.height - 78, "", {
@@ -100,8 +93,8 @@ export class HudAdapter {
         color: "#b9c5cc",
         lineSpacing: 4
       })
-      .setScrollFactor(1)
-      .setDepth(4);
+      .setScrollFactor(0)
+      .setDepth(100_004);
 
     this.matchText = scene.add
       .text(scene.scale.width / 2, scene.scale.height / 2, "", {
@@ -113,26 +106,11 @@ export class HudAdapter {
         padding: { x: 24, y: 18 }
       })
       .setOrigin(0.5)
-      .setScrollFactor(1)
-      .setDepth(20)
+      .setScrollFactor(0)
+      .setDepth(200_000)
       .setVisible(false);
 
     this.createButtons();
-
-    this.viewportContainer.add([
-      this.graphics,
-      this.economyText,
-      this.objectiveText,
-      this.selectionTitleText,
-      this.selectionDetailsText,
-      ...this.buttons.flatMap((button) => [
-        button.background,
-        button.label
-      ]),
-      this.matchText
-    ]);
-
-    this.syncViewport();
   }
 
   layout(snapshot: SimulationSnapshot): void {
@@ -152,7 +130,6 @@ export class HudAdapter {
         button.background.setVisible(false);
         button.label.setVisible(false);
       }
-      this.syncViewport();
       return;
     }
 
@@ -191,8 +168,6 @@ export class HudAdapter {
         this.setButtonEnabled(button, false);
       }
     }
-
-    this.syncViewport();
   }
 
   update(snapshot: SimulationSnapshot): void {
@@ -367,22 +342,16 @@ export class HudAdapter {
   }
 
   destroy(): void {
-    this.viewportContainer.destroy(true);
-  }
-
-  private syncViewport(): void {
-    const scene = this.options.scene;
-    const transform = fixedViewportTransform(
-      scene.cameras.main.zoom,
-      scene.scale.width,
-      scene.scale.height,
-      scene.cameras.main.originX,
-      scene.cameras.main.originY
-    );
-
-    this.viewportContainer
-      .setPosition(transform.x, transform.y)
-      .setScale(transform.scale);
+    this.graphics.destroy();
+    this.economyText.destroy();
+    this.objectiveText.destroy();
+    this.selectionTitleText.destroy();
+    this.selectionDetailsText.destroy();
+    this.matchText.destroy();
+    for (const button of this.buttons) {
+      button.background.destroy();
+      button.label.destroy();
+    }
   }
 
   private createButtons(): void {
@@ -400,8 +369,8 @@ export class HudAdapter {
     for (const command of commands) {
       const background = this.options.scene.add
         .rectangle(0, 0, 128, 52, 0x18242c, 0.96)
-        .setScrollFactor(1)
-        .setDepth(4)
+        .setScrollFactor(0)
+        .setDepth(100_004)
         .setStrokeStyle(1, 0x60717b, 0.8)
         .setInteractive({ useHandCursor: true });
 
@@ -413,8 +382,8 @@ export class HudAdapter {
           color: "#f4ead1"
         })
         .setOrigin(0.5)
-        .setScrollFactor(1)
-        .setDepth(5);
+        .setScrollFactor(0)
+        .setDepth(100_005);
 
       background.on("pointerdown", () => {
         if (
