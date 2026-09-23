@@ -678,7 +678,8 @@ export class Simulation {
       unit.buildTask = undefined;
       unit.attackTask = {
         targetType: "unit",
-        targetId: target.id
+        targetId: target.id,
+        origin: { ...unit.position }
       };
       unit.activity = "attacking";
       this.combatSystem.routeAttackerToTarget(unit, target, definition);
@@ -728,7 +729,8 @@ export class Simulation {
       unit.buildTask = undefined;
       unit.attackTask = {
         targetType: "building",
-        targetId: target.id
+        targetId: target.id,
+        origin: { ...unit.position }
       };
       unit.activity = "attacking";
       this.combatSystem.routeAttackerToBuilding(
@@ -1059,6 +1061,21 @@ export class Simulation {
     ) {
       throw new Error(`Invalid build time for building: ${definition.kind}`);
     }
+
+    if (
+      definition.armor !== undefined &&
+      (!Number.isFinite(definition.armor) || definition.armor < 0)
+    ) {
+      throw new Error(`Invalid building armor: ${definition.kind}`);
+    }
+
+    if (
+      definition.combatTags?.some(
+        (tag) => typeof tag !== "string" || tag.length === 0
+      )
+    ) {
+      throw new Error(`Invalid building combat tag: ${definition.kind}`);
+    }
   }
 
   private validateUnitDefinition(definition: UnitDefinition): void {
@@ -1076,9 +1093,34 @@ export class Simulation {
       !Number.isFinite(definition.attackDamage) ||
       definition.attackDamage < 0 ||
       !Number.isFinite(definition.populationCost) ||
-      definition.populationCost <= 0
+      definition.populationCost <= 0 ||
+      (definition.armor !== undefined &&
+        (!Number.isFinite(definition.armor) || definition.armor < 0)) ||
+      (definition.acquisitionRange !== undefined &&
+        (!Number.isFinite(definition.acquisitionRange) ||
+          definition.acquisitionRange < 0)) ||
+      (definition.maxChaseDistance !== undefined &&
+        (!Number.isFinite(definition.maxChaseDistance) ||
+          definition.maxChaseDistance < 0))
     ) {
       throw new Error(`Invalid unit definition: ${definition.kind}`);
+    }
+
+    if (
+      definition.combatTags?.some(
+        (tag) => typeof tag !== "string" || tag.length === 0
+      ) ||
+      definition.bonuses?.some(
+        (bonus) =>
+          !Number.isFinite(bonus.damage) ||
+          bonus.damage < 0 ||
+          (bonus.targetKind === undefined &&
+            bonus.targetTag === undefined) ||
+          (bonus.targetTag !== undefined &&
+            bonus.targetTag.length === 0)
+      )
+    ) {
+      throw new Error(`Invalid unit combat metadata: ${definition.kind}`);
     }
   }
 
