@@ -23,3 +23,39 @@ export function screenToGrid(point: Point2, p: IsometricProjection): Point2 {
     y: y / p.tileHeight - x / p.tileWidth
   };
 }
+
+
+export interface ScreenBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export function isometricMapBounds(
+  mapWidth: number,
+  mapHeight: number,
+  projection: IsometricProjection,
+  paddingX = 0,
+  paddingY = 0
+): ScreenBounds {
+  const corners = [
+    gridToScreen({ x: 0, y: 0 }, projection),
+    gridToScreen({ x: mapWidth, y: 0 }, projection),
+    gridToScreen({ x: mapWidth, y: mapHeight }, projection),
+    gridToScreen({ x: 0, y: mapHeight }, projection)
+  ];
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  const minX = Math.min(...xs) - paddingX;
+  const maxX = Math.max(...xs) + paddingX;
+  const minY = Math.min(...ys) - paddingY;
+  const maxY = Math.max(...ys) + paddingY;
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY
+  };
+}

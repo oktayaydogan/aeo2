@@ -13,6 +13,7 @@ export interface BuildingRendererOptions {
 
 export class BuildingRenderer {
   private readonly views = new Map<string, Phaser.GameObjects.Image>();
+  private hoveredBuildingId?: string;
   private readonly healthBars = new Map<string, Phaser.GameObjects.Rectangle>();
   private readonly lastHitPoints = new Map<string, number>();
   private readonly labels = new Map<string, Phaser.GameObjects.Text>();
@@ -109,6 +110,21 @@ export class BuildingRenderer {
         .setInteractive({ useHandCursor: true });
 
       view.setScale(baseScale(building));
+      view.on("pointerover", () => {
+        this.hoveredBuildingId = building.id;
+        this.labels.get(building.id)?.setVisible(true);
+      });
+      view.on("pointerout", () => {
+        if (this.hoveredBuildingId === building.id) {
+          this.hoveredBuildingId = undefined;
+        }
+
+        this.labels
+          .get(building.id)
+          ?.setVisible(
+            this.options.getSelectedBuildingId() === building.id
+          );
+      });
 
       view.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
         if (pointer.leftButtonDown() && building.ownerId === "player-1") {
@@ -139,7 +155,6 @@ export class BuildingRenderer {
     }
 
     view.setVisible(true);
-    label?.setVisible(true);
     this.healthBars.get(building.id)?.setVisible(true);
     view.setPosition(point.x, point.y - 10);
     view.setDepth(point.y);
@@ -178,6 +193,9 @@ export class BuildingRenderer {
     view.setScale(baseScale(building) * (selected ? 1.06 : 1));
 
     if (label) {
+      label.setVisible(
+        selected || this.hoveredBuildingId === building.id
+      );
       label.setPosition(point.x, point.y + 10);
       label.setDepth(point.y + 1);
       const queue = building.trainingQueue[0];

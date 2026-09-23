@@ -3,6 +3,7 @@ import {
   nextCameraZoom,
   normalizeWheelDelta
 } from "./cameraZoom";
+import { edgePanVector } from "./cameraViewport";
 
 export class CameraController {
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -13,6 +14,8 @@ export class CameraController {
     right: Phaser.Input.Keyboard.Key;
   };
   private configuredCanvas?: HTMLCanvasElement;
+  private pointerX = Number.NaN;
+  private pointerY = Number.NaN;
   private destroyed = false;
 
   private readonly onCanvasWheel = (event: WheelEvent): void => {
@@ -102,6 +105,18 @@ export class CameraController {
       { passive: false }
     );
 
+    this.scene.input.on(
+      "pointermove",
+      (pointer: Phaser.Input.Pointer) => {
+        this.pointerX = pointer.x;
+        this.pointerY = pointer.y;
+      }
+    );
+    this.scene.input.on("gameout", () => {
+      this.pointerX = Number.NaN;
+      this.pointerY = Number.NaN;
+    });
+
     this.scene.events.once(
       Phaser.Scenes.Events.SHUTDOWN,
       this.destroy,
@@ -117,19 +132,27 @@ export class CameraController {
   update(delta: number): void {
     const camera = this.scene.cameras.main;
     const speed = (520 * delta) / 1000 / camera.zoom;
+    const edgePan = edgePanVector(
+      this.pointerX,
+      this.pointerY,
+      this.scene.scale.width,
+      this.scene.scale.height
+    );
+    const keyboardX =
+      this.wasd?.left.isDown || this.cursors?.left.isDown
+        ? -1
+        : this.wasd?.right.isDown || this.cursors?.right.isDown
+          ? 1
+          : 0;
+    const keyboardY =
+      this.wasd?.up.isDown || this.cursors?.up.isDown
+        ? -1
+        : this.wasd?.down.isDown || this.cursors?.down.isDown
+          ? 1
+          : 0;
 
-    if (this.wasd?.up.isDown || this.cursors?.up.isDown) {
-      camera.scrollY -= speed;
-    }
-    if (this.wasd?.down.isDown || this.cursors?.down.isDown) {
-      camera.scrollY += speed;
-    }
-    if (this.wasd?.left.isDown || this.cursors?.left.isDown) {
-      camera.scrollX -= speed;
-    }
-    if (this.wasd?.right.isDown || this.cursors?.right.isDown) {
-      camera.scrollX += speed;
-    }
+    camera.scrollX += (keyboardX || edgePan.x) * speed;
+    camera.scrollY += (keyboardY || edgePan.y) * speed;
   }
 
   destroy(): void {

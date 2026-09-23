@@ -116,7 +116,7 @@ export class HudAdapter {
   layout(snapshot: SimulationSnapshot): void {
     const width = this.options.scene.scale.width;
     const height = this.options.scene.scale.height;
-    const panelHeight = 126;
+    const panelHeight = 118;
 
     this.graphics.clear();
 
@@ -148,19 +148,19 @@ export class HudAdapter {
     this.graphics.lineBetween(0, height - panelHeight, width, height - panelHeight);
 
     this.objectiveText.setPosition(width / 2, 14);
-    this.selectionTitleText.setPosition(24, height - 108);
-    this.selectionDetailsText.setPosition(24, height - 78);
+    this.selectionTitleText.setPosition(24, height - 100);
+    this.selectionDetailsText.setPosition(24, height - 70);
 
-    const buttonStartX = Math.max(350, width - 480);
-    const firstRowY = height - 92;
+    const visibleButtons = this.buttons.filter(
+      (button) => button.background.visible
+    );
+    const buttonStartX = Math.max(430, width - 420);
+    const firstRowY = height - 58;
 
-    this.buttons.forEach((button, index) => {
-      const column = index % 4;
-      const row = Math.floor(index / 4);
-      const x = buttonStartX + column * 116;
-      const y = firstRowY + row * 58;
-      button.background.setPosition(x, y);
-      button.label.setPosition(x, y);
+    visibleButtons.forEach((button, index) => {
+      const x = buttonStartX + index * 136;
+      button.background.setPosition(x, firstRowY);
+      button.label.setPosition(x, firstRowY);
     });
 
     if (snapshot.match.status === "ended") {
@@ -279,23 +279,34 @@ export class HudAdapter {
     });
 
     const buttonLabels: Record<HudCommand, string> = {
-      house: "HOUSE\n25 Wood   [H]",
-      barracks: "BARRACKS\n75 Wood   [B]",
-      "archery-range": "ARCHERY RANGE\n100 Wood   [X]",
-      villager: "VILLAGER\n50 Food   [V]",
-      militia: "MILITIA\n60 Food · 20 Gold   [M]",
-      spearman: "SPEARMAN\n25 Wood · 45 Food   [P]",
-      archer: "ARCHER\n25 Wood · 45 Gold   [C]",
-      "forged-weapons": "FORGED WEAPONS\n75 Food · 75 Gold   [F]"
+      house: "HOUSE  [H]\n25W",
+      barracks: "BARRACKS  [B]\n75W",
+      "archery-range": "ARCHERY RANGE  [X]\n100W",
+      villager: "VILLAGER  [V]\n50F",
+      militia: "MILITIA  [M]\n60F · 20G",
+      spearman: "SPEARMAN  [P]\n25W · 45F",
+      archer: "ARCHER  [C]\n25W · 45G",
+      "forged-weapons": "FORGED WEAPONS  [F]\n75F · 75G"
     };
+    const hasVillager = selectedUnits.some(
+      (unit) => unit.kind === "villager"
+    );
 
     for (const button of this.buttons) {
+      const relevant =
+        !this.options.benchmarkMode &&
+        isCommandRelevant(
+          button.command,
+          hasVillager,
+          selectedBuilding?.kind
+        );
+
       button.label.setText(buttonLabels[button.command]);
-      button.background.setVisible(!this.options.benchmarkMode);
-      button.label.setVisible(!this.options.benchmarkMode);
+      button.background.setVisible(relevant);
+      button.label.setVisible(relevant);
       this.setButtonEnabled(
         button,
-        !this.options.benchmarkMode && availability[button.command]
+        relevant && availability[button.command]
       );
     }
 
@@ -357,7 +368,7 @@ export class HudAdapter {
 
     for (const command of commands) {
       const background = this.options.scene.add
-        .rectangle(0, 0, 108, 54, 0x18242c, 0.96)
+        .rectangle(0, 0, 128, 52, 0x18242c, 0.96)
         .setScrollFactor(0)
         .setDepth(100_004)
         .setStrokeStyle(1, 0x60717b, 0.8)
@@ -366,7 +377,7 @@ export class HudAdapter {
       const label = this.options.scene.add
         .text(0, 0, "", {
           fontFamily: "Inter, Arial, sans-serif",
-          fontSize: "12px",
+          fontSize: "11px",
           align: "center",
           color: "#f4ead1"
         })
@@ -392,6 +403,8 @@ export class HudAdapter {
         this.options.issueTrain(command);
       });
 
+      background.setVisible(false);
+      label.setVisible(false);
       this.buttons.push({ background, label, command });
     }
   }
@@ -408,5 +421,27 @@ export class HudAdapter {
     } else {
       button.background.disableInteractive();
     }
+  }
+}
+
+
+function isCommandRelevant(
+  command: HudCommand,
+  hasVillager: boolean,
+  selectedBuildingKind?: BuildingKind
+): boolean {
+  switch (command) {
+    case "house":
+    case "barracks":
+    case "archery-range":
+      return hasVillager;
+    case "villager":
+      return selectedBuildingKind === "town-center";
+    case "militia":
+    case "spearman":
+    case "forged-weapons":
+      return selectedBuildingKind === "barracks";
+    case "archer":
+      return selectedBuildingKind === "archery-range";
   }
 }

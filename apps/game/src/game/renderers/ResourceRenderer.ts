@@ -5,6 +5,7 @@ import type { VisibilityState } from "../visibility";
 
 export class ResourceRenderer {
   private readonly views = new Map<string, Phaser.GameObjects.Image>();
+  private hoveredResourceId?: string;
   private readonly labels = new Map<string, Phaser.GameObjects.Text>();
   private readonly idByObject = new Map<Phaser.GameObjects.GameObject, string>();
 
@@ -39,7 +40,9 @@ export class ResourceRenderer {
       const discovered = visibility !== "unexplored";
 
       view?.setVisible(discovered);
-      label?.setVisible(discovered);
+      label?.setVisible(
+        discovered && this.hoveredResourceId === resource.id
+      );
 
       if (view) {
         if (discovered) {
@@ -106,6 +109,17 @@ export class ResourceRenderer {
       .setDepth(point.y)
       .setInteractive({ useHandCursor: true });
 
+    view.on("pointerover", () => {
+      this.hoveredResourceId = resource.id;
+      this.labels.get(resource.id)?.setVisible(view.visible);
+    });
+    view.on("pointerout", () => {
+      if (this.hoveredResourceId === resource.id) {
+        this.hoveredResourceId = undefined;
+      }
+      this.labels.get(resource.id)?.setVisible(false);
+    });
+
     const label = this.scene.add
       .text(point.x, point.y + 10, resourceLabel(resource), {
         fontFamily: "Inter, Arial, sans-serif",
@@ -115,7 +129,8 @@ export class ResourceRenderer {
         padding: { x: 3, y: 1 }
       })
       .setOrigin(0.5, 0)
-      .setDepth(point.y + 1);
+      .setDepth(point.y + 1)
+      .setVisible(false);
 
     this.views.set(resource.id, view);
     this.labels.set(resource.id, label);

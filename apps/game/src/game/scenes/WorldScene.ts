@@ -17,10 +17,12 @@ import {
 } from "@aeo2/simulation";
 import {
   gridToScreen,
+  isometricMapBounds,
   screenToGrid,
   type IsometricProjection
 } from "../isometric";
 import { CameraController } from "../input/CameraController";
+import { initialCameraZoom } from "../input/cameraViewport";
 import { CommandController } from "../input/CommandController";
 import { ControlGroupManager } from "../input/controlGroups";
 import { HotkeyController } from "../input/HotkeyController";
@@ -34,6 +36,13 @@ import {
 } from "../benchmark";
 import { PROTOTYPE_MAP } from "../prototypeMap";
 import { createSkirmishSetup } from "../skirmishMap";
+import {
+  aiProfileFor,
+  enemyResourcesFor,
+  mapSizeFor,
+  playerResourcesFor,
+  readSkirmishSettings
+} from "../skirmishSettings";
 import { createPrototypeTextures } from "../prototypeTextures";
 import { BuildingRenderer } from "../renderers/BuildingRenderer";
 import { CommandFeedbackRenderer } from "../renderers/CommandFeedbackRenderer";
@@ -42,7 +51,6 @@ import { ResourceRenderer } from "../renderers/ResourceRenderer";
 import { SelectionRenderer } from "../renderers/SelectionRenderer";
 import { UnitRenderer } from "../renderers/UnitRenderer";
 
-const MAP_SIZE = 20;
 const UNIT_RADIUS = 6;
 const FOG_UPDATE_INTERVAL_MS = 100;
 const MINIMAP_SIZE = 160;
@@ -57,9 +65,22 @@ const BENCHMARK_AUTORUN =
 const BENCHMARK_DURATION_MS = 10_000;
 const BENCHMARK_ORDER_INTERVAL_MS = 1_000;
 
-const DEFAULT_SKIRMISH_SEED = 20260920;
-const SKIRMISH_SEED = readSkirmishSeed();
-const SKIRMISH_SETUP = createSkirmishSetup(SKIRMISH_SEED);
+const SKIRMISH_SETTINGS = readSkirmishSettings();
+const SKIRMISH_SEED = SKIRMISH_SETTINGS.seed;
+const MAP_SIZE = BENCHMARK_MODE
+  ? 20
+  : mapSizeFor(SKIRMISH_SETTINGS.mapSize);
+const SKIRMISH_SETUP = createSkirmishSetup(
+  SKIRMISH_SEED,
+  MAP_SIZE
+);
+const AI_PROFILE = aiProfileFor(SKIRMISH_SETTINGS.aiDifficulty);
+const PLAYER_STARTING_RESOURCES = playerResourcesFor(
+  SKIRMISH_SETTINGS.startingResources
+);
+const ENEMY_STARTING_RESOURCES = enemyResourcesFor(
+  SKIRMISH_SETTINGS.startingResources
+);
 
 const PROTOTYPE_RESOURCE_NODES: ResourceNodeState[] = [
   {
@@ -176,23 +197,15 @@ export class WorldScene extends Phaser.Scene {
           {
             playerId: "player-2",
             enemyPlayerId: "player-1",
-            thinkIntervalTicks: 40,
-            targetVillagers: 4,
-            targetMilitary: 7,
-            attackThreshold: 5
+            thinkIntervalTicks: AI_PROFILE.thinkIntervalTicks,
+            targetVillagers: AI_PROFILE.targetVillagers,
+            targetMilitary: AI_PROFILE.targetMilitary,
+            attackThreshold: AI_PROFILE.attackThreshold
           }
         ],
     stockpiles: {
-      "player-1": {
-        wood: 100,
-        food: 0,
-        gold: 0
-      },
-      "player-2": {
-        wood: 25,
-        food: 100,
-        gold: 45
-      }
+      "player-1": { ...PLAYER_STARTING_RESOURCES },
+      "player-2": { ...ENEMY_STARTING_RESOURCES }
     }
   });
 
@@ -318,8 +331,38 @@ export class WorldScene extends Phaser.Scene {
 
     this.configureInput();
 
-    this.cameras.main.setZoom(1);
-    this.cameras.main.centerOn(700, 420);
+    const cameraBounds = isometricMapBounds(
+      MAP_SIZE,
+      MAP_SIZE,
+      this.projection,
+      320,
+      220
+    );
+    this.cameras.main.setBounds(
+      cameraBounds.x,
+      cameraBounds.y,
+      cameraBounds.width,
+      cameraBounds.height
+    );
+
+    const initialFocus = BENCHMARK_MODE
+      ? { x: MAP_SIZE / 2, y: MAP_SIZE / 2 }
+      : {
+          x: SKIRMISH_SETUP.player.townCenter.x + 4,
+          y: SKIRMISH_SETUP.player.townCenter.y + 1.5
+        };
+    const initialFocusWorld = gridToScreen(
+      initialFocus,
+      this.projection
+    );
+
+    this.cameras.main.setZoom(
+      initialCameraZoom(this.scale.width, this.scale.height)
+    );
+    this.cameras.main.centerOn(
+      initialFocusWorld.x,
+      initialFocusWorld.y
+    );
 
     this.updateVisibility(FOG_UPDATE_INTERVAL_MS, initialSnapshot);
     this.renderSnapshot(initialSnapshot);
@@ -1130,19 +1173,6 @@ function createBenchmarkUnits(): UnitState[] {
   }
 
   return units;
-}
-
-function readSkirmishSeed(): number {
-  if (typeof window === "undefined") {
-    return DEFAULT_SKIRMISH_SEED;
-  }
-
-  const raw = new URLSearchParams(window.location.search).get("seed");
-  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-
-  return Number.isFinite(parsed)
-    ? parsed
-    : DEFAULT_SKIRMISH_SEED;
 }
 
 function unitColor(unit: UnitState): number {
