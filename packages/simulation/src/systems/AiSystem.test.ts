@@ -61,6 +61,8 @@ function createSystem(): {
 
   const system = new AiSystem({
     tickRate: 20,
+    mapWidth: 20,
+    mapHeight: 20,
     definitions: [
       {
         playerId: "player-2",
