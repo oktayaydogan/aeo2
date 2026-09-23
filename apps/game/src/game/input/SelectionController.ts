@@ -25,6 +25,7 @@ export interface SelectionControllerOptions {
   setSelectionBox(box: SelectionBoxVisual | undefined): void;
   selectedUnitIds: Set<string>;
   projection: IsometricProjection;
+  pointerToWorld(pointer: Phaser.Input.Pointer): Point2;
   getSnapshot(): SimulationSnapshot;
   isPlacementActive(): boolean;
   isWorldPointVisible(point: Point2): boolean;
@@ -73,7 +74,7 @@ export class SelectionController {
 
         this.dragSelection = {
           startScreen: { x: pointer.x, y: pointer.y },
-          startWorld: { x: pointer.worldX, y: pointer.worldY },
+          startWorld: this.options.pointerToWorld(pointer),
           additive
         };
       }
@@ -195,10 +196,11 @@ export class SelectionController {
       return;
     }
 
-    const left = Math.min(drag.startWorld.x, pointer.worldX);
-    const right = Math.max(drag.startWorld.x, pointer.worldX);
-    const top = Math.min(drag.startWorld.y, pointer.worldY);
-    const bottom = Math.max(drag.startWorld.y, pointer.worldY);
+    const pointerWorld = this.options.pointerToWorld(pointer);
+    const left = Math.min(drag.startWorld.x, pointerWorld.x);
+    const right = Math.max(drag.startWorld.x, pointerWorld.x);
+    const top = Math.min(drag.startWorld.y, pointerWorld.y);
+    const bottom = Math.max(drag.startWorld.y, pointerWorld.y);
 
     for (const unit of this.options.getSnapshot().units) {
       if (unit.ownerId !== "player-1") {
