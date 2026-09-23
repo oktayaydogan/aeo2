@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createGame } from "./game/createGame";
 import {
   DEFAULT_SKIRMISH_SETTINGS,
+  MAX_SKIRMISH_SEED,
   createSkirmishSearch,
+  isValidSkirmishSettings,
   readSkirmishSettings,
   type AiDifficulty,
   type MapSizePreset,
@@ -16,10 +18,27 @@ function isPlayMode(): boolean {
   );
 }
 
+function createRandomSeed(): number {
+  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    const value = values[0] ?? 1;
+
+    return value === 0 ? 1 : value;
+  }
+
+  return Math.floor(Math.random() * MAX_SKIRMISH_SEED) + 1;
+}
+
 export function App() {
   const gameHostRef = useRef<HTMLDivElement>(null);
   const [playing] = useState(isPlayMode);
-  const [settings, setSettings] = useState(readSkirmishSettings);
+  const initialSettings = useMemo(readSkirmishSettings, []);
+  const [settings, setSettings] = useState(initialSettings);
+  const [seedInput, setSeedInput] = useState(String(initialSettings.seed));
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle"
+  );
 
   useEffect(() => {
     if (!playing) {
@@ -36,12 +55,48 @@ export function App() {
     return () => game.destroy(true);
   }, [playing]);
 
+  const parsedSeed = Number(seedInput);
+  const candidateSettings = {
+    ...settings,
+    seed: parsedSeed
+  };
+  const settingsValid =
+    seedInput.trim().length > 0 &&
+    isValidSkirmishSettings(candidateSettings);
+
   const startSkirmish = () => {
-    window.location.search = createSkirmishSearch(settings);
+    if (!settingsValid) {
+      return;
+    }
+
+    window.location.search = createSkirmishSearch(candidateSettings);
   };
 
   const resetSettings = () => {
     setSettings({ ...DEFAULT_SKIRMISH_SETTINGS });
+    setSeedInput(String(DEFAULT_SKIRMISH_SETTINGS.seed));
+    setCopyState("idle");
+  };
+
+  const randomizeSeed = () => {
+    const seed = createRandomSeed();
+    setSettings((current) => ({ ...current, seed }));
+    setSeedInput(String(seed));
+    setCopyState("idle");
+  };
+
+  const copySeed = async () => {
+    if (!settingsValid || !navigator.clipboard) {
+      setCopyState("failed");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(String(candidateSettings.seed));
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
   };
 
   const openSetup = () => {
@@ -89,27 +144,56 @@ export function App() {
               <span className="setup-kicker">Single-player skirmish</span>
               <h1>Prepare the match</h1>
               <p>
-                Configure the parts of the current ruleset that are already
-                deterministic and supported by the simulation.
+                Configure a reproducible local match. The URL keeps the chosen
+                settings so reload/restart uses the same authoritative start.
               </p>
             </div>
 
             <div className="setup-grid">
               <label className="setup-field">
                 <span>Map seed</span>
-                <input
-                  type="number"
-                  value={settings.seed}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      seed:
-                        Number.parseInt(event.target.value, 10) ||
-                        DEFAULT_SKIRMISH_SETTINGS.seed
-                    }))
-                  }
-                />
-                <small>Reuse this number to reproduce the same map.</small>
+                <div className="seed-control">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={seedInput}
+                    aria-invalid={!settingsValid}
+                    onChange={(event) => {
+                      const value = event.target.value.replace(/[^0-9]/g, "");
+                      setSeedInput(value);
+                      const nextSeed = Number(value);
+
+                      if (Number.isSafeInteger(nextSeed)) {
+                        setSettings((current) => ({
+                          ...current,
+                          seed: nextSeed
+                        }));
+                      }
+
+                      setCopyState("idle");
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="field-button"
+                    onClick={randomizeSeed}
+                  >
+                    Generate
+                  </button>
+                  <button
+                    type="button"
+                    className="field-button"
+                    onClick={copySeed}
+                    disabled={!settingsValid}
+                  >
+                    {copyState === "copied" ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <small className={!settingsValid ? "field-error" : undefined}>
+                  {settingsValid
+                    ? "1–4,294,967,295 · reuse this value for the same map."
+                    : "Enter an integer seed between 1 and 4,294,967,295."}
+                </small>
               </label>
 
               <label className="setup-field">
@@ -192,6 +276,7 @@ export function App() {
                 type="button"
                 className="primary-button"
                 onClick={startSkirmish}
+                disabled={!settingsValid}
               >
                 Start skirmish
               </button>
