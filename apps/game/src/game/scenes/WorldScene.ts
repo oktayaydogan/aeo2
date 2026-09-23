@@ -23,13 +23,13 @@ import {
 } from "../isometric";
 import { CameraController } from "../input/CameraController";
 import { initialCameraZoom } from "../input/cameraViewport";
-import { fixedViewportTransform } from "../fixedViewport";
 import { CommandController } from "../input/CommandController";
 import { ControlGroupManager } from "../input/controlGroups";
 import { HotkeyController } from "../input/HotkeyController";
-import { SelectionController } from "../input/SelectionController";
-import { HudAdapter } from "../adapters/HudAdapter";
-import { MinimapAdapter } from "../adapters/MinimapAdapter";
+import {
+  SelectionController,
+  type SelectionBoxVisual
+} from "../input/SelectionController";
 import {
   DEFAULT_BENCHMARK_BUDGET,
   summarizeBenchmark,
@@ -58,8 +58,6 @@ import { UnitRenderer } from "../renderers/UnitRenderer";
 
 const UNIT_RADIUS = 6;
 const FOG_UPDATE_INTERVAL_MS = 100;
-const MINIMAP_SIZE = 160;
-const MINIMAP_MARGIN = 14;
 const BENCHMARK_MODE =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("benchmark") === "1";
@@ -243,13 +241,9 @@ export class WorldScene extends Phaser.Scene {
   private resourceRenderer?: ResourceRenderer;
   private selectionRenderer?: SelectionRenderer;
   private unitRenderer?: UnitRenderer;
-  private selectionOverlay?: Phaser.GameObjects.Container;
-  private debugOverlay?: Phaser.GameObjects.Container;
-  private selectionGraphics?: Phaser.GameObjects.Graphics;
   private placementGraphics?: Phaser.GameObjects.Graphics;
-  private hudAdapter?: HudAdapter;
-  private minimapAdapter?: MinimapAdapter;
   private metricsText?: Phaser.GameObjects.Text;
+  private selectionBox?: SelectionBoxVisual;
   private placementKind?: BuildingKind;
   private selectedBuildingId?: string;
 
@@ -261,16 +255,6 @@ export class WorldScene extends Phaser.Scene {
     createPrototypeTextures(this);
     this.drawMap();
     const initialSnapshot = this.simulation.getSnapshot();
-
-    this.selectionOverlay = this.add
-      .container(0, 0)
-      .setScrollFactor(0)
-      .setDepth(99_999);
-    this.selectionGraphics = this.add
-      .graphics()
-      .setScrollFactor(1)
-      .setDepth(0);
-    this.selectionOverlay.add(this.selectionGraphics);
 
     this.selectionRenderer = new SelectionRenderer(this);
     this.commandFeedbackRenderer = new CommandFeedbackRenderer(this);
@@ -307,33 +291,6 @@ export class WorldScene extends Phaser.Scene {
       .graphics()
       .setDepth(90_000);
 
-    this.minimapAdapter = new MinimapAdapter({
-      scene: this,
-      projection: this.projection,
-      fogRenderer: this.fogRenderer,
-      mapSize: MAP_SIZE,
-      size: MINIMAP_SIZE,
-      margin: MINIMAP_MARGIN,
-      benchmarkMode: BENCHMARK_MODE
-    });
-
-    this.hudAdapter = new HudAdapter({
-      scene: this,
-      benchmarkMode: BENCHMARK_MODE,
-      skirmishSeed: SKIRMISH_SEED,
-      selectedUnitIds: this.selectedUnitIds,
-      getSelectedBuildingId: () => this.selectedBuildingId,
-      setPlacementMode: (kind) => this.setPlacementMode(kind),
-      issueTrain: (unitKind) => this.issueTrainCommand(unitKind),
-      issueResearch: (technologyKind) =>
-        this.issueResearchCommand(technologyKind)
-    });
-
-    this.debugOverlay = this.add
-      .container(0, 0)
-      .setScrollFactor(0)
-      .setDepth(110_000);
-
     this.metricsText = this.add
       .text(14, 54, "", {
         fontFamily: "monospace",
@@ -342,10 +299,9 @@ export class WorldScene extends Phaser.Scene {
         backgroundColor: "#091017bb",
         padding: { x: 8, y: 6 }
       })
-      .setScrollFactor(1)
-      .setDepth(0)
+      .setScrollFactor(0)
+      .setDepth(110_000)
       .setVisible(BENCHMARK_MODE);
-    this.debugOverlay.add(this.metricsText);
 
     this.configureInput();
 
@@ -381,17 +337,27 @@ export class WorldScene extends Phaser.Scene {
       initialFocusWorld.x,
       initialFocusWorld.y
     );
-    this.syncFixedViewportOverlays();
 
     this.updateVisibility(FOG_UPDATE_INTERVAL_MS, initialSnapshot);
     this.renderSnapshot(initialSnapshot);
-    this.minimapAdapter.render(initialSnapshot);
-    this.hudAdapter.update(initialSnapshot);
+
+    if (!this.scene.isActive("ui")) {
+      this.scene.launch("ui");
+    }
+    this.scene.bringToTop("ui");
+
+    this.events.once(
+      Phaser.Scenes.Events.SHUTDOWN,
+      () => {
+        if (this.scene.isActive("ui")) {
+          this.scene.stop("ui");
+        }
+      }
+    );
   }
 
   override update(_time: number, delta: number): void {
     this.cameraController?.update(delta);
-    this.syncFixedViewportOverlays();
     this.accumulatorMs += Math.min(delta, 250);
 
     while (this.accumulatorMs >= this.simulation.tickDurationMs) {
@@ -410,30 +376,72 @@ export class WorldScene extends Phaser.Scene {
     this.updateBenchmark(delta, snapshot);
     this.updateVisibility(delta, snapshot);
     this.renderSnapshot(snapshot);
-    this.minimapAdapter?.render(snapshot);
     this.updateMetrics(delta, snapshot);
-    this.hudAdapter?.layout(snapshot);
-    this.hudAdapter?.update(snapshot);
-    this.hudAdapter?.updateMatchOverlay(snapshot);
   }
 
-  private syncFixedViewportOverlays(): void {
-    const transform = fixedViewportTransform(
-      this.cameras.main.zoom,
-      this.scale.width,
-      this.scale.height,
-      this.cameras.main.originX,
-      this.cameras.main.originY
-    );
+  public getUiSnapshot(): SimulationSnapshot {
+    return this.simulation.getSnapshot();
+  }
 
-    for (const container of [
-      this.selectionOverlay,
-      this.debugOverlay
-    ]) {
-      container
-        ?.setPosition(transform.x, transform.y)
-        .setScale(transform.scale);
-    }
+  public getUiSelectedUnitIds(): Set<string> {
+    return this.selectedUnitIds;
+  }
+
+  public getUiSelectedBuildingId(): string | undefined {
+    return this.selectedBuildingId;
+  }
+
+  public getUiSelectionBox(): SelectionBoxVisual | undefined {
+    return this.selectionBox
+      ? { ...this.selectionBox }
+      : undefined;
+  }
+
+  public getUiFogRenderer(): FogRenderer | undefined {
+    return this.fogRenderer;
+  }
+
+  public getUiProjection(): IsometricProjection {
+    return this.projection;
+  }
+
+  public getUiMapSize(): number {
+    return MAP_SIZE;
+  }
+
+  public getUiSkirmishSeed(): number {
+    return SKIRMISH_SEED;
+  }
+
+  public isUiBenchmarkMode(): boolean {
+    return BENCHMARK_MODE;
+  }
+
+  public setUiPlacementMode(
+    kind: BuildingKind | undefined
+  ): void {
+    this.setPlacementMode(kind);
+  }
+
+  public issueUiTrain(unitKind: UnitKind): void {
+    this.issueTrainCommand(unitKind);
+  }
+
+  public issueUiResearch(
+    technologyKind: TechnologyKind
+  ): void {
+    this.issueResearchCommand(technologyKind);
+  }
+
+  public getWorldCameraMidPoint(): { x: number; y: number } {
+    return {
+      x: this.cameras.main.midPoint.x,
+      y: this.cameras.main.midPoint.y
+    };
+  }
+
+  public centerWorldCamera(x: number, y: number): void {
+    this.cameras.main.centerOn(x, y);
   }
 
   private drawMap(): void {
@@ -530,10 +538,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private configureInput(): void {
-    if (!this.selectionGraphics) {
-      throw new Error("Selection graphics must exist before input is configured.");
-    }
-
     this.cameraController = new CameraController(this);
     this.cameraController.configure();
 
@@ -564,9 +568,13 @@ export class WorldScene extends Phaser.Scene {
 
     this.selectionController = new SelectionController({
       input: this.input,
-      graphics: this.selectionGraphics,
+      setSelectionBox: (box) => {
+        this.selectionBox = box;
+      },
       selectedUnitIds: this.selectedUnitIds,
       projection: this.projection,
+      pointerToWorld: (pointer) =>
+        this.pointerToWorld(pointer),
       getSnapshot: () => this.simulation.getSnapshot(),
       isPlacementActive: () => this.placementKind !== undefined,
       isWorldPointVisible: (point) =>
@@ -730,7 +738,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
 
@@ -753,11 +761,17 @@ export class WorldScene extends Phaser.Scene {
     this.placementKind = kind;
     this.commandFeedbackRenderer?.setCursor(kind ? "build" : "none");
     this.placementGraphics?.clear();
-    if (this.selectionController) {
-      this.selectionController.cancelDrag();
-    } else {
-      this.selectionGraphics?.clear();
-    }
+    this.selectionController?.cancelDrag();
+  }
+
+  private pointerToWorld(
+    pointer: Phaser.Input.Pointer
+  ): { x: number; y: number } {
+    const point = pointer.positionToCamera(
+      this.cameras.main
+    ) as Phaser.Math.Vector2;
+
+    return { x: point.x, y: point.y };
   }
 
   private drawPlacementPreview(pointer: Phaser.Input.Pointer): void {
@@ -777,7 +791,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
     const origin = {
@@ -826,7 +840,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
 
@@ -952,7 +966,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
 
