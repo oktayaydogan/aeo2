@@ -234,6 +234,32 @@ export type GameCommand = ProtocolGameCommand<
   TechnologyKind
 >;
 
+export type CommandRejectionReason =
+  | "no-controllable-units"
+  | "villager-required"
+  | "combat-unit-required"
+  | "invalid-resource"
+  | "invalid-building"
+  | "invalid-target"
+  | "invalid-placement"
+  | "unreachable"
+  | "insufficient-resources"
+  | "building-incomplete"
+  | "wrong-building"
+  | "building-busy"
+  | "queue-full"
+  | "population-cap"
+  | "already-researched"
+  | "invalid-technology";
+
+export interface CommandRejectionEvent {
+  sequence: number;
+  tick: number;
+  playerId: string;
+  commandType: GameCommand["type"];
+  reason: CommandRejectionReason;
+}
+
 export interface AiPlayerDefinition {
   playerId: string;
   enemyPlayerId: string;
