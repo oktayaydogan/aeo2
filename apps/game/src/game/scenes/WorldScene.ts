@@ -44,6 +44,10 @@ import {
   readSkirmishSettings
 } from "../skirmishSettings";
 import { createPrototypeTextures } from "../prototypeTextures";
+import {
+  terrainAccentOffsets,
+  terrainCellVisual
+} from "../terrainVisual";
 import { BuildingRenderer } from "../renderers/BuildingRenderer";
 import { CommandFeedbackRenderer } from "../renderers/CommandFeedbackRenderer";
 import { FogRenderer } from "../renderers/FogRenderer";
@@ -404,18 +408,24 @@ export class WorldScene extends Phaser.Scene {
       for (let x = 0; x < MAP_SIZE; x += 1) {
         const top = gridToScreen({ x, y }, this.projection);
         const right = gridToScreen({ x: x + 1, y }, this.projection);
-        const bottom = gridToScreen({ x: x + 1, y: y + 1 }, this.projection);
+        const bottom = gridToScreen(
+          { x: x + 1, y: y + 1 },
+          this.projection
+        );
         const left = gridToScreen({ x, y: y + 1 }, this.projection);
         const blocked = ACTIVE_BLOCKED_CELL_KEYS.has(`${x},${y}`);
-
-        graphics.fillStyle(
-          blocked ? 0x4a4b47 : (x + y) % 2 === 0 ? 0x29483c : 0x2d4e41,
-          1
+        const visual = terrainCellVisual(
+          x,
+          y,
+          SKIRMISH_SEED,
+          blocked
         );
+
+        graphics.fillStyle(visual.fill, 1);
         graphics.lineStyle(
           1,
-          blocked ? 0xa19a83 : 0x6d8a73,
-          blocked ? 0.55 : 0.2
+          visual.line,
+          blocked ? 0.48 : 0.16
         );
         graphics.beginPath();
         graphics.moveTo(top.x, top.y);
@@ -426,12 +436,59 @@ export class WorldScene extends Phaser.Scene {
         graphics.fillPath();
         graphics.strokePath();
 
+        const accents = terrainAccentOffsets(visual.variant);
+
         if (blocked) {
-          graphics.lineStyle(2, 0xb4aa89, 0.32);
-          graphics.beginPath();
-          graphics.moveTo((top.x + left.x) / 2, (top.y + left.y) / 2);
-          graphics.lineTo((right.x + bottom.x) / 2, (right.y + bottom.y) / 2);
-          graphics.strokePath();
+          graphics.lineStyle(
+            2,
+            visual.accent,
+            visual.accentAlpha
+          );
+
+          for (const [u, v] of accents) {
+            const point = gridToScreen(
+              { x: x + u, y: y + v },
+              this.projection
+            );
+            const branch = gridToScreen(
+              {
+                x: x + Math.min(0.9, u + 0.2),
+                y: y + Math.min(0.9, v + 0.12)
+              },
+              this.projection
+            );
+
+            graphics.beginPath();
+            graphics.moveTo(point.x, point.y);
+            graphics.lineTo(branch.x, branch.y);
+            graphics.strokePath();
+          }
+        } else {
+          graphics.lineStyle(
+            1,
+            visual.accent,
+            visual.accentAlpha
+          );
+
+          for (const [u, v] of accents) {
+            const point = gridToScreen(
+              { x: x + u, y: y + v },
+              this.projection
+            );
+
+            graphics.lineBetween(
+              point.x,
+              point.y + 1,
+              point.x - 2,
+              point.y - 2
+            );
+            graphics.lineBetween(
+              point.x,
+              point.y + 1,
+              point.x + 2,
+              point.y - 1
+            );
+          }
         }
       }
     }
