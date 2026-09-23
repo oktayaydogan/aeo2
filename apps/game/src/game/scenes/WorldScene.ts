@@ -573,6 +573,8 @@ export class WorldScene extends Phaser.Scene {
       },
       selectedUnitIds: this.selectedUnitIds,
       projection: this.projection,
+      pointerToWorld: (pointer) =>
+        this.pointerToWorld(pointer),
       getSnapshot: () => this.simulation.getSnapshot(),
       isPlacementActive: () => this.placementKind !== undefined,
       isWorldPointVisible: (point) =>
@@ -736,7 +738,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
 
@@ -762,6 +764,16 @@ export class WorldScene extends Phaser.Scene {
     this.selectionController?.cancelDrag();
   }
 
+  private pointerToWorld(
+    pointer: Phaser.Input.Pointer
+  ): { x: number; y: number } {
+    const point = pointer.positionToCamera(
+      this.cameras.main
+    ) as Phaser.Math.Vector2;
+
+    return { x: point.x, y: point.y };
+  }
+
   private drawPlacementPreview(pointer: Phaser.Input.Pointer): void {
     const buildingKind = this.placementKind;
     const graphics = this.placementGraphics;
@@ -779,7 +791,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
     const origin = {
@@ -828,7 +840,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
 
@@ -954,7 +966,7 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const target = screenToGrid(
-      { x: pointer.worldX, y: pointer.worldY },
+      this.pointerToWorld(pointer),
       this.projection
     );
 
