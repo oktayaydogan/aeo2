@@ -1,5 +1,14 @@
 export { GridNavigation } from "./GridNavigation";
 export { DEFAULT_TICK_RATE, Simulation } from "./Simulation";
+export {
+  FogOfWar,
+  buildingVisionRadius,
+  unitVisionRadius
+} from "./visibility";
+export type {
+  VisibilityState,
+  VisionSource
+} from "./visibility";
 export type {
   AiMode,
   AiPlayerDefinition,
@@ -11,6 +20,7 @@ export type {
   BuildingKind,
   BuildingState,
   CargoState,
+  CombatTag,
   DropOffPointState,
   GameCommand,
   GatherCommand,

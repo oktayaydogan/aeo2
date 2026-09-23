@@ -13,9 +13,23 @@ import type {
   UnitState,
   Vector2
 } from "../types";
+import {
+  canAffordWithReservation,
+  createAiEconomyPlan,
+  type AiSpendingReservation
+} from "./AiEconomyPlanner";
+import {
+  AiKnowledgeSystem,
+  type AiKnowledgeSnapshot
+} from "./AiKnowledgeSystem";
 import { MAX_TRAINING_QUEUE } from "./ProductionSystem";
 
 const ARRIVAL_EPSILON = 0.000001;
+const DEFENSE_BASE_RADIUS = 9;
+const DEFENSE_WORKER_RADIUS = 4.5;
+const DEFENSE_BUILDING_RADIUS = 6;
+const DEFENSE_RETREAT_TRIGGER_RADIUS = 3.5;
+const DEFENSE_HYSTERESIS_SECONDS = 3;
 
 export interface AiUnit extends UnitState {
   gatherTask?: unknown;
@@ -25,6 +39,8 @@ export interface AiUnit extends UnitState {
 
 export interface AiSystemOptions<TUnit extends AiUnit> {
   tickRate: number;
+  mapWidth: number;
+  mapHeight: number;
   definitions: readonly AiPlayerDefinition[];
   units: Map<string, TUnit>;
   buildings: Map<string, BuildingState>;
@@ -41,14 +57,25 @@ export interface AiSystemOptions<TUnit extends AiUnit> {
     definition: BuildingDefinition,
     position: Vector2
   ): Vector2 | null;
+  canReach(unit: TUnit, position: Vector2): boolean;
   executeCommand(command: GameCommand): void;
 }
 
 export class AiSystem<TUnit extends AiUnit> {
   private readonly definitions: readonly AiPlayerDefinition[];
   private readonly states = new Map<string, AiPlayerState>();
+  private readonly knowledgeSystem: AiKnowledgeSystem<TUnit>;
+  private readonly lastThreatTick = new Map<string, number>();
 
   constructor(private readonly options: AiSystemOptions<TUnit>) {
+    this.knowledgeSystem = new AiKnowledgeSystem({
+      width: options.mapWidth,
+      height: options.mapHeight,
+      units: options.units,
+      buildings: options.buildings,
+      resources: options.resources,
+      buildingDefinitions: options.buildingDefinitions
+    });
     this.definitions = options.definitions.map((definition) => ({
       ...definition,
       thinkIntervalTicks:
@@ -71,8 +98,20 @@ export class AiSystem<TUnit extends AiUnit> {
     return [...this.states.values()].map((state) => ({ ...state }));
   }
 
+  getKnowledgeStates(): readonly AiKnowledgeSnapshot[] {
+    return this.definitions.map((definition) =>
+      this.knowledgeSystem.getSnapshot(definition.playerId)
+    );
+  }
+
   process(tick: number): void {
     for (const ai of this.definitions) {
+      this.knowledgeSystem.update(
+        ai.playerId,
+        ai.enemyPlayerId,
+        tick
+      );
+
       const interval = Math.max(
         1,
         ai.thinkIntervalTicks ?? this.options.tickRate
@@ -105,6 +144,19 @@ export class AiSystem<TUnit extends AiUnit> {
         )
         .sort((a, b) => a.id.localeCompare(b.id))[0];
 
+      if (
+        this.handleDefense(
+          ai,
+          tick,
+          state,
+          villagers,
+          military,
+          townCenter
+        )
+      ) {
+        continue;
+      }
+
       const economyEnabled =
         ai.targetVillagers !== undefined ||
         ai.targetMilitary !== undefined ||
@@ -113,10 +165,15 @@ export class AiSystem<TUnit extends AiUnit> {
       const targetMilitary = ai.targetMilitary ?? military.length;
       const attackThreshold = ai.attackThreshold ?? 1;
 
-      const queuedVillagers = [...this.options.buildings.values()]
-        .filter((building) => building.ownerId === ai.playerId)
-        .flatMap((building) => building.trainingQueue)
-        .filter((item) => item.unitKind === "villager").length;
+      const queuedVillagers = this.countQueuedUnits(
+        ai.playerId,
+        "villager"
+      );
+      const constructionPlan = this.planConstruction(
+        ai.playerId,
+        population,
+        targetMilitary
+      );
 
       if (
         economyEnabled &&
@@ -124,37 +181,71 @@ export class AiSystem<TUnit extends AiUnit> {
         villagers.length + queuedVillagers < targetVillagers &&
         population.used + population.queued < population.cap
       ) {
-        this.options.executeCommand({
-          type: "train",
-          playerId: ai.playerId,
-          buildingId: townCenter.id,
-          unitKind: "villager"
-        });
+        const villagerDefinition = this.options.unitDefinitions.get("villager");
+
+        if (
+          villagerDefinition &&
+          canAffordWithReservation(
+            stockpile,
+            villagerDefinition.cost,
+            constructionPlan?.reservation
+          )
+        ) {
+          this.options.executeCommand({
+            type: "train",
+            playerId: ai.playerId,
+            buildingId: townCenter.id,
+            unitKind: "villager"
+          });
+        }
       }
 
       const availableBuilders = villagers.filter(
         (unit) => !unit.buildTask && !unit.attackTask
       );
-      const idleVillagers = villagers.filter(
-        (unit) =>
-          !unit.gatherTask &&
-          !unit.buildTask &&
-          !unit.attackTask &&
-          unit.activity === "idle"
-      );
 
       if (economyEnabled) {
-        this.tryConstruct(
+        if (constructionPlan) {
+          this.tryConstruct(
+            ai.playerId,
+            availableBuilders,
+            constructionPlan.buildingKind
+          );
+        }
+
+        const activeConstructionPlan = this.planConstruction(
           ai.playerId,
-          availableBuilders,
-          population,
+          this.options.calculatePopulation(ai.playerId),
           targetMilitary
+        );
+        const idleVillagers = villagers.filter(
+          (unit) =>
+            !unit.gatherTask &&
+            !unit.buildTask &&
+            !unit.attackTask &&
+            unit.activity === "idle"
+        );
+        const economyPlan = createAiEconomyPlan({
+          stockpile: this.options.getStockpile(ai.playerId),
+          workerCount: idleVillagers.length,
+          reservation: activeConstructionPlan?.reservation,
+          recurringCosts: this.plannedRecurringCosts(
+            ai.playerId,
+            villagers.length,
+            targetVillagers,
+            military.length,
+            targetMilitary
+          )
+        });
+        const desiredKinds = this.expandWorkerTargets(
+          economyPlan.workerTargets
         );
 
         idleVillagers.forEach((villager, index) => {
-          const desiredKind = this.desiredResourceKind(stockpile, index);
+          const desiredKind = desiredKinds[index] ?? "food";
           const resource = this.findNearestResource(
-            villager.position,
+            ai.playerId,
+            villager,
             desiredKind
           );
 
@@ -176,6 +267,12 @@ export class AiSystem<TUnit extends AiUnit> {
         .flatMap((building) => building.trainingQueue)
         .filter((item) => item.unitKind !== "villager").length;
 
+      const activeConstructionReservation = this.planConstruction(
+        ai.playerId,
+        this.options.calculatePopulation(ai.playerId),
+        targetMilitary
+      )?.reservation;
+
       if (
         economyEnabled &&
         military.length + queuedMilitary < targetMilitary
@@ -196,27 +293,35 @@ export class AiSystem<TUnit extends AiUnit> {
           (building) => building.kind === "barracks"
         );
 
-        if (archeryRange && military.length % 2 === 1) {
-          this.options.executeCommand({
-            type: "train",
-            playerId: ai.playerId,
-            buildingId: archeryRange.id,
-            unitKind: "archer"
-          });
-        } else if (barracks) {
-          this.options.executeCommand({
-            type: "train",
-            playerId: ai.playerId,
-            buildingId: barracks.id,
-            unitKind: "militia"
-          });
-        } else if (archeryRange) {
-          this.options.executeCommand({
-            type: "train",
-            playerId: ai.playerId,
-            buildingId: archeryRange.id,
-            unitKind: "archer"
-          });
+        const trainingChoice =
+          archeryRange && military.length % 2 === 1
+            ? { building: archeryRange, unitKind: "archer" as const }
+            : barracks
+              ? { building: barracks, unitKind: "militia" as const }
+              : archeryRange
+                ? { building: archeryRange, unitKind: "archer" as const }
+                : undefined;
+
+        if (trainingChoice) {
+          const definition = this.options.unitDefinitions.get(
+            trainingChoice.unitKind
+          );
+
+          if (
+            definition &&
+            canAffordWithReservation(
+              this.options.getStockpile(ai.playerId),
+              definition.cost,
+              activeConstructionReservation
+            )
+          ) {
+            this.options.executeCommand({
+              type: "train",
+              playerId: ai.playerId,
+              buildingId: trainingChoice.building.id,
+              unitKind: trainingChoice.unitKind
+            });
+          }
         }
       }
 
@@ -249,7 +354,14 @@ export class AiSystem<TUnit extends AiUnit> {
             )
             .sort((a, b) => a.kind.localeCompare(b.kind))[0];
 
-          if (technology) {
+          if (
+            technology &&
+            canAffordWithReservation(
+              this.options.getStockpile(ai.playerId),
+              technology.cost,
+              activeConstructionReservation
+            )
+          ) {
             this.options.executeCommand({
               type: "research",
               playerId: ai.playerId,
@@ -270,24 +382,26 @@ export class AiSystem<TUnit extends AiUnit> {
         continue;
       }
 
+      const visibleEnemyUnitIds =
+        this.knowledgeSystem.getVisibleEnemyUnitIds(ai.playerId);
       const enemyUnits = [...this.options.units.values()]
-        .filter((unit) => unit.ownerId === ai.enemyPlayerId)
-        .sort((a, b) => a.id.localeCompare(b.id));
-      const enemyBuildings = [...this.options.buildings.values()]
         .filter(
-          (building) =>
-            building.ownerId === ai.enemyPlayerId &&
-            building.completed
+          (unit) =>
+            unit.ownerId === ai.enemyPlayerId &&
+            visibleEnemyUnitIds.has(unit.id)
         )
-        .sort((a, b) => {
-          if (a.kind === "town-center" && b.kind !== "town-center") {
-            return -1;
-          }
-          if (b.kind === "town-center" && a.kind !== "town-center") {
-            return 1;
-          }
-          return a.id.localeCompare(b.id);
-        });
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const enemyBuildings = [
+        ...this.knowledgeSystem.getRememberedEnemyBuildings(ai.playerId)
+      ].sort((a, b) => {
+        if (a.kind === "town-center" && b.kind !== "town-center") {
+          return -1;
+        }
+        if (b.kind === "town-center" && a.kind !== "town-center") {
+          return 1;
+        }
+        return a.id.localeCompare(b.id);
+      });
 
       if (enemyUnits.length === 0 && enemyBuildings.length === 0) {
         if (state) {
@@ -336,11 +450,211 @@ export class AiSystem<TUnit extends AiUnit> {
     }
   }
 
+  private handleDefense(
+    ai: AiPlayerDefinition,
+    tick: number,
+    state: AiPlayerState | undefined,
+    villagers: readonly TUnit[],
+    military: readonly TUnit[],
+    townCenter: BuildingState | undefined
+  ): boolean {
+    const visibleEnemyUnitIds =
+      this.knowledgeSystem.getVisibleEnemyUnitIds(ai.playerId);
+    const visibleEnemies = [...this.options.units.values()]
+      .filter(
+        (unit) =>
+          unit.ownerId === ai.enemyPlayerId &&
+          visibleEnemyUnitIds.has(unit.id)
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const ownBuildings = [...this.options.buildings.values()]
+      .filter(
+        (building) =>
+          building.ownerId === ai.playerId &&
+          building.completed
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const basePosition = townCenter
+      ? this.buildingCenter(townCenter)
+      : undefined;
+    const threats = visibleEnemies.filter((enemy) => {
+      if (
+        basePosition &&
+        distance(enemy.position, basePosition) <= DEFENSE_BASE_RADIUS
+      ) {
+        return true;
+      }
+
+      if (
+        villagers.some(
+          (villager) =>
+            distance(enemy.position, villager.position) <=
+            DEFENSE_WORKER_RADIUS
+        )
+      ) {
+        return true;
+      }
+
+      return ownBuildings.some(
+        (building) =>
+          distance(
+            enemy.position,
+            this.buildingCenter(building)
+          ) <= DEFENSE_BUILDING_RADIUS
+      );
+    });
+
+    if (threats.length > 0) {
+      this.lastThreatTick.set(ai.playerId, tick);
+    }
+
+    const lastThreatTick = this.lastThreatTick.get(ai.playerId);
+    const hysteresisTicks =
+      DEFENSE_HYSTERESIS_SECONDS * this.options.tickRate;
+    const defending =
+      threats.length > 0 ||
+      (lastThreatTick !== undefined &&
+        tick - lastThreatTick <= hysteresisTicks);
+
+    if (!defending) {
+      if (lastThreatTick !== undefined) {
+        this.lastThreatTick.delete(ai.playerId);
+      }
+      return false;
+    }
+
+    if (state) {
+      state.mode = "defending";
+    }
+
+    if (threats.length === 0) {
+      if (basePosition) {
+        for (const defender of military) {
+          if (
+            !defender.attackTask &&
+            defender.activity === "idle" &&
+            this.options.canReach(defender, basePosition)
+          ) {
+            this.options.executeCommand({
+              type: "move",
+              playerId: ai.playerId,
+              unitIds: [defender.id],
+              target: basePosition
+            });
+          }
+        }
+      }
+
+      return true;
+    }
+
+    for (const defender of military) {
+      const target = [...threats].sort(
+        (a, b) =>
+          distance(defender.position, a.position) -
+            distance(defender.position, b.position) ||
+          a.id.localeCompare(b.id)
+      )[0];
+
+      if (!target) {
+        continue;
+      }
+
+      this.options.executeCommand({
+        type: "attack",
+        playerId: ai.playerId,
+        unitIds: [defender.id],
+        targetUnitId: target.id
+      });
+    }
+
+    for (const villager of villagers) {
+      const nearestThreat = [...threats].sort(
+        (a, b) =>
+          distance(villager.position, a.position) -
+            distance(villager.position, b.position) ||
+          a.id.localeCompare(b.id)
+      )[0];
+
+      if (
+        !nearestThreat ||
+        distance(villager.position, nearestThreat.position) >
+          DEFENSE_RETREAT_TRIGGER_RADIUS
+      ) {
+        continue;
+      }
+
+      const retreatTarget = this.findRetreatTarget(
+        villager,
+        nearestThreat,
+        basePosition
+      );
+
+      if (!retreatTarget) {
+        continue;
+      }
+
+      this.options.executeCommand({
+        type: "move",
+        playerId: ai.playerId,
+        unitIds: [villager.id],
+        target: retreatTarget
+      });
+    }
+
+    return true;
+  }
+
+  private findRetreatTarget(
+    villager: TUnit,
+    threat: TUnit,
+    basePosition: Vector2 | undefined
+  ): Vector2 | undefined {
+    const dx = villager.position.x - threat.position.x;
+    const dy = villager.position.y - threat.position.y;
+    const magnitude = Math.hypot(dx, dy);
+    const awayTarget =
+      magnitude > ARRIVAL_EPSILON
+        ? {
+            x: villager.position.x + (dx / magnitude) * 3,
+            y: villager.position.y + (dy / magnitude) * 3
+          }
+        : undefined;
+
+    if (
+      awayTarget &&
+      this.options.canReach(villager, awayTarget)
+    ) {
+      return awayTarget;
+    }
+
+    if (
+      basePosition &&
+      this.options.canReach(villager, basePosition)
+    ) {
+      return basePosition;
+    }
+
+    return undefined;
+  }
+
+  private buildingCenter(building: BuildingState): Vector2 {
+    const definition = this.options.buildingDefinitions.get(building.kind);
+
+    return {
+      x:
+        building.position.x +
+        (definition?.footprint.width ?? 1) / 2,
+      y:
+        building.position.y +
+        (definition?.footprint.height ?? 1) / 2
+    };
+  }
+
   private tryConstruct(
     playerId: string,
     builders: readonly TUnit[],
-    population: PlayerPopulationState,
-    targetMilitary: number
+    buildingKind: BuildingState["kind"]
   ): boolean {
     const builder = builders[0];
 
@@ -348,6 +662,19 @@ export class AiSystem<TUnit extends AiUnit> {
       return false;
     }
 
+    return this.tryBuild(playerId, builder, buildingKind);
+  }
+
+  private planConstruction(
+    playerId: string,
+    population: PlayerPopulationState,
+    targetMilitary: number
+  ):
+    | {
+        buildingKind: BuildingState["kind"];
+        reservation: AiSpendingReservation;
+      }
+    | undefined {
     const ownedBuildings = [...this.options.buildings.values()].filter(
       (building) => building.ownerId === playerId
     );
@@ -358,39 +685,112 @@ export class AiSystem<TUnit extends AiUnit> {
         building.kind === "house" && !building.completed
     );
 
-    if (
-      populationHeadroom <= 2 &&
-      !houseUnderConstruction &&
-      this.tryBuild(playerId, builder, "house")
-    ) {
-      return true;
+    if (populationHeadroom <= 2 && !houseUnderConstruction) {
+      return this.buildingReservation("house");
     }
 
     const hasBarracks = ownedBuildings.some(
       (building) => building.kind === "barracks"
     );
 
-    if (
-      targetMilitary > 0 &&
-      !hasBarracks &&
-      this.tryBuild(playerId, builder, "barracks")
-    ) {
-      return true;
+    if (targetMilitary > 0 && !hasBarracks) {
+      return this.buildingReservation("barracks");
     }
 
     const hasArcheryRange = ownedBuildings.some(
       (building) => building.kind === "archery-range"
     );
 
-    if (
-      targetMilitary >= 4 &&
-      !hasArcheryRange &&
-      this.tryBuild(playerId, builder, "archery-range")
-    ) {
-      return true;
+    if (targetMilitary >= 4 && !hasArcheryRange) {
+      return this.buildingReservation("archery-range");
     }
 
-    return false;
+    return undefined;
+  }
+
+  private buildingReservation(
+    buildingKind: BuildingState["kind"]
+  ):
+    | {
+        buildingKind: BuildingState["kind"];
+        reservation: AiSpendingReservation;
+      }
+    | undefined {
+    const definition = this.options.buildingDefinitions.get(buildingKind);
+
+    if (!definition) {
+      return undefined;
+    }
+
+    return {
+      buildingKind,
+      reservation: {
+        key: `build:${buildingKind}`,
+        cost: { ...definition.cost }
+      }
+    };
+  }
+
+  private countQueuedUnits(
+    playerId: string,
+    unitKind: UnitDefinition["kind"]
+  ): number {
+    return [...this.options.buildings.values()]
+      .filter((building) => building.ownerId === playerId)
+      .flatMap((building) => building.trainingQueue)
+      .filter((item) => item.unitKind === unitKind).length;
+  }
+
+  private plannedRecurringCosts(
+    playerId: string,
+    villagerCount: number,
+    targetVillagers: number,
+    militaryCount: number,
+    targetMilitary: number
+  ): ResourceStockpile[] {
+    const costs: ResourceStockpile[] = [];
+
+    if (
+      villagerCount + this.countQueuedUnits(playerId, "villager") <
+      targetVillagers
+    ) {
+      const villagerDefinition = this.options.unitDefinitions.get("villager");
+
+      if (villagerDefinition) {
+        costs.push(villagerDefinition.cost);
+      }
+    }
+
+    if (
+      militaryCount +
+        [...this.options.buildings.values()]
+          .filter((building) => building.ownerId === playerId)
+          .flatMap((building) => building.trainingQueue)
+          .filter((item) => item.unitKind !== "villager").length <
+      targetMilitary
+    ) {
+      const militiaDefinition = this.options.unitDefinitions.get("militia");
+
+      if (militiaDefinition) {
+        costs.push(militiaDefinition.cost);
+      }
+    }
+
+    return costs;
+  }
+
+  private expandWorkerTargets(
+    targets: Record<ResourceKind, number>
+  ): ResourceKind[] {
+    const result: ResourceKind[] = [];
+
+    for (const kind of ["food", "wood", "gold"] as const) {
+      for (let index = 0; index < targets[kind]; index += 1) {
+        result.push(kind);
+      }
+    }
+
+    return result;
   }
 
   private tryBuild(
@@ -466,35 +866,23 @@ export class AiSystem<TUnit extends AiUnit> {
     return false;
   }
 
-  private desiredResourceKind(
-    stockpile: ResourceStockpile,
-    villagerIndex: number
-  ): ResourceKind {
-    if (stockpile.food < 120) {
-      return villagerIndex % 3 === 0 ? "wood" : "food";
-    }
-
-    if (stockpile.wood < 120) {
-      return villagerIndex % 3 === 0 ? "food" : "wood";
-    }
-
-    if (stockpile.gold < 90) {
-      return villagerIndex % 2 === 0 ? "gold" : "food";
-    }
-
-    return (["food", "wood", "gold"] as const)[villagerIndex % 3] ?? "food";
-  }
-
   private findNearestResource(
-    position: Vector2,
+    playerId: string,
+    unit: TUnit,
     kind: ResourceKind
   ): ResourceNodeState | undefined {
-    const available = [...this.options.resources.values()]
-      .filter((resource) => resource.amount > ARRIVAL_EPSILON)
+    const available = [
+      ...this.knowledgeSystem.getKnownResources(playerId)
+    ]
+      .filter(
+        (resource) =>
+          resource.amount > ARRIVAL_EPSILON &&
+          this.options.canReach(unit, resource.position)
+      )
       .sort(
         (a, b) =>
-          distance(position, a.position) -
-            distance(position, b.position) ||
+          distance(unit.position, a.position) -
+            distance(unit.position, b.position) ||
           a.id.localeCompare(b.id)
       );
 

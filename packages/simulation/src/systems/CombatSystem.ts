@@ -1,11 +1,11 @@
 import { GridNavigation } from "../GridNavigation";
+import { resolveCombatDamage } from "./combatDamage";
 import { MIN_UNIT_DISTANCE } from "./MovementSystem";
 import type {
   BuildingDefinition,
   BuildingState,
   MatchState,
   UnitDefinition,
-  UnitKind,
   UnitState,
   Vector2
 } from "../types";
@@ -13,6 +13,7 @@ import type {
 export interface AttackTask {
   targetType: "unit" | "building";
   targetId: string;
+  origin?: Vector2;
 }
 
 export interface CombatUnit extends UnitState {
@@ -55,6 +56,7 @@ export class CombatSystem<TUnit extends CombatUnit> {
     }
 
     for (const unit of this.units.values()) {
+      this.acquireTarget(unit);
       const task = unit.attackTask;
 
       if (!task || deadUnitIds.has(unit.id)) {
@@ -69,12 +71,38 @@ export class CombatSystem<TUnit extends CombatUnit> {
       }
 
       if (task.targetType === "unit") {
+        const target = this.units.get(task.targetId);
+
+        if (
+          target &&
+          task.origin &&
+          definition.maxChaseDistance !== undefined &&
+          distance(task.origin, target.position) >
+            definition.maxChaseDistance
+        ) {
+          this.stopAttackTask(unit);
+          continue;
+        }
+
         this.processUnitTarget(
           unit,
           task.targetId,
           definition,
           deadUnitIds
         );
+        continue;
+      }
+
+      const buildingTarget = this.buildings.get(task.targetId);
+
+      if (
+        buildingTarget &&
+        task.origin &&
+        definition.maxChaseDistance !== undefined &&
+        distance(task.origin, buildingTarget.position) >
+          definition.maxChaseDistance
+      ) {
+        this.stopAttackTask(unit);
         continue;
       }
 
@@ -281,7 +309,7 @@ export class CombatSystem<TUnit extends CombatUnit> {
     target.hitPoints -= this.attackDamageFor(
       unit,
       definition,
-      target.kind
+      this.unitDefinitions.get(target.kind)
     );
     unit.attackCooldownTicks = Math.max(
       1,
@@ -346,7 +374,11 @@ export class CombatSystem<TUnit extends CombatUnit> {
       return;
     }
 
-    building.hitPoints -= this.attackDamageFor(unit, definition);
+    building.hitPoints -= this.attackDamageFor(
+      unit,
+      definition,
+      buildingDefinition
+    );
     unit.attackCooldownTicks = Math.max(
       1,
       Math.round(definition.attackCooldownSeconds * this.tickRate)
@@ -461,23 +493,68 @@ export class CombatSystem<TUnit extends CombatUnit> {
     return candidates;
   }
 
+  private acquireTarget(unit: TUnit): void {
+    if (unit.attackTask) {
+      return;
+    }
+
+    const definition = this.unitDefinitions.get(unit.kind);
+    const acquisitionRange = definition?.acquisitionRange ?? 0;
+
+    if (
+      !definition ||
+      definition.attackDamage <= 0 ||
+      acquisitionRange <= 0
+    ) {
+      return;
+    }
+
+    const target = [...this.units.values()]
+      .filter(
+        (candidate) =>
+          candidate.ownerId !== unit.ownerId &&
+          candidate.hitPoints > 0 &&
+          distance(unit.position, candidate.position) <=
+            acquisitionRange
+      )
+      .sort(
+        (a, b) =>
+          distance(unit.position, a.position) -
+            distance(unit.position, b.position) ||
+          a.id.localeCompare(b.id)
+      )[0];
+
+    if (!target) {
+      return;
+    }
+
+    unit.attackTask = {
+      targetType: "unit",
+      targetId: target.id,
+      origin: { ...unit.position }
+    };
+    unit.activity = "attacking";
+    this.routeAttackerToTarget(unit, target, definition);
+  }
+
   private attackDamageFor(
     unit: TUnit,
     definition: UnitDefinition,
-    targetKind?: UnitKind
+    targetDefinition?: UnitDefinition | BuildingDefinition
   ): number {
-    let damage = definition.attackDamage;
-
-    if (targetKind) {
-      damage +=
-        definition.bonuses?.find(
-          (bonus) => bonus.targetKind === targetKind
-        )?.damage ?? 0;
-    }
-
-    damage += this.getAttackDamageBonus(unit.ownerId);
-
-    return damage;
+    return resolveCombatDamage({
+      baseDamage: definition.attackDamage,
+      attackUpgradeBonus: this.getAttackDamageBonus(unit.ownerId),
+      bonuses: definition.bonuses,
+      target: {
+        kind:
+          targetDefinition && "speed" in targetDefinition
+            ? targetDefinition.kind
+            : undefined,
+        tags: targetDefinition?.combatTags,
+        armor: targetDefinition?.armor
+      }
+    }).damage;
   }
 }
 
