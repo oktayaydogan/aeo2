@@ -1,9 +1,11 @@
 import {
   canStartResearch,
-  hasResources
+  hasResources,
+  researchRejectionReason
 } from "../commands/commandValidation";
 import type {
   BuildingState,
+  CommandRejectionReason,
   ResourceStockpile,
   TechnologyDefinition,
   TechnologyKind
@@ -24,6 +26,23 @@ export class ResearchSystem {
       TechnologyDefinition
     >
   ) {}
+
+  getResearchRejectionReason(
+    playerId: string,
+    building: BuildingState | undefined,
+    definition: TechnologyDefinition | undefined,
+    stockpile: ResourceStockpile
+  ): CommandRejectionReason | null {
+    return researchRejectionReason({
+      building,
+      definition,
+      playerId,
+      alreadyResearched: Boolean(
+        definition && this.hasTechnology(playerId, definition.kind)
+      ),
+      stockpile
+    });
+  }
 
   startResearch(
     playerId: string,
