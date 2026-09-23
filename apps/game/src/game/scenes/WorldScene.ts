@@ -391,6 +391,9 @@ export class WorldScene extends Phaser.Scene {
     }
 
     const snapshot = this.simulation.getSnapshot();
+    this.commandFeedbackRenderer?.syncAuthoritativeRejections(
+      this.simulation.getCommandRejectionsSince(0, "player-1")
+    );
     this.updateBenchmark(delta, snapshot);
     this.updateVisibility(delta, snapshot);
     this.renderSnapshot(snapshot);
