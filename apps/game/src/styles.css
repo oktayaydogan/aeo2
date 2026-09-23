@@ -289,3 +289,46 @@ body {
   color: #c7d2d8;
   background: #111b22;
 }
+
+
+.seed-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.seed-control input {
+  min-width: 0;
+}
+
+.field-button {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid #34454f;
+  border-radius: 4px;
+  color: #cdd8dd;
+  background: #111b22;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.field-button:hover:not(:disabled) {
+  border-color: #c7ad66;
+  color: #f3e7c6;
+}
+
+.field-button:disabled,
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: .38;
+}
+
+.field-error {
+  color: #d98b7d !important;
+}
+
+.setup-field input[aria-invalid="true"] {
+  border-color: #b96158;
+}
