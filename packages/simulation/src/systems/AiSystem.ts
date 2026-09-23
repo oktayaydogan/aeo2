@@ -25,6 +25,11 @@ import {
 import { MAX_TRAINING_QUEUE } from "./ProductionSystem";
 
 const ARRIVAL_EPSILON = 0.000001;
+const DEFENSE_BASE_RADIUS = 9;
+const DEFENSE_WORKER_RADIUS = 4.5;
+const DEFENSE_BUILDING_RADIUS = 6;
+const DEFENSE_RETREAT_TRIGGER_RADIUS = 3.5;
+const DEFENSE_HYSTERESIS_SECONDS = 3;
 
 export interface AiUnit extends UnitState {
   gatherTask?: unknown;
@@ -60,6 +65,7 @@ export class AiSystem<TUnit extends AiUnit> {
   private readonly definitions: readonly AiPlayerDefinition[];
   private readonly states = new Map<string, AiPlayerState>();
   private readonly knowledgeSystem: AiKnowledgeSystem<TUnit>;
+  private readonly lastThreatTick = new Map<string, number>();
 
   constructor(private readonly options: AiSystemOptions<TUnit>) {
     this.knowledgeSystem = new AiKnowledgeSystem({
@@ -137,6 +143,19 @@ export class AiSystem<TUnit extends AiUnit> {
             building.kind === "town-center"
         )
         .sort((a, b) => a.id.localeCompare(b.id))[0];
+
+      if (
+        this.handleDefense(
+          ai,
+          tick,
+          state,
+          villagers,
+          military,
+          townCenter
+        )
+      ) {
+        continue;
+      }
 
       const economyEnabled =
         ai.targetVillagers !== undefined ||
@@ -429,6 +448,207 @@ export class AiSystem<TUnit extends AiUnit> {
         }
       }
     }
+  }
+
+  private handleDefense(
+    ai: AiPlayerDefinition,
+    tick: number,
+    state: AiPlayerState | undefined,
+    villagers: readonly TUnit[],
+    military: readonly TUnit[],
+    townCenter: BuildingState | undefined
+  ): boolean {
+    const visibleEnemyUnitIds =
+      this.knowledgeSystem.getVisibleEnemyUnitIds(ai.playerId);
+    const visibleEnemies = [...this.options.units.values()]
+      .filter(
+        (unit) =>
+          unit.ownerId === ai.enemyPlayerId &&
+          visibleEnemyUnitIds.has(unit.id)
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const ownBuildings = [...this.options.buildings.values()]
+      .filter(
+        (building) =>
+          building.ownerId === ai.playerId &&
+          building.completed
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const basePosition = townCenter
+      ? this.buildingCenter(townCenter)
+      : undefined;
+    const threats = visibleEnemies.filter((enemy) => {
+      if (
+        basePosition &&
+        distance(enemy.position, basePosition) <= DEFENSE_BASE_RADIUS
+      ) {
+        return true;
+      }
+
+      if (
+        villagers.some(
+          (villager) =>
+            distance(enemy.position, villager.position) <=
+            DEFENSE_WORKER_RADIUS
+        )
+      ) {
+        return true;
+      }
+
+      return ownBuildings.some(
+        (building) =>
+          distance(
+            enemy.position,
+            this.buildingCenter(building)
+          ) <= DEFENSE_BUILDING_RADIUS
+      );
+    });
+
+    if (threats.length > 0) {
+      this.lastThreatTick.set(ai.playerId, tick);
+    }
+
+    const lastThreatTick = this.lastThreatTick.get(ai.playerId);
+    const hysteresisTicks =
+      DEFENSE_HYSTERESIS_SECONDS * this.options.tickRate;
+    const defending =
+      threats.length > 0 ||
+      (lastThreatTick !== undefined &&
+        tick - lastThreatTick <= hysteresisTicks);
+
+    if (!defending) {
+      if (lastThreatTick !== undefined) {
+        this.lastThreatTick.delete(ai.playerId);
+      }
+      return false;
+    }
+
+    if (state) {
+      state.mode = "defending";
+    }
+
+    if (threats.length === 0) {
+      if (basePosition) {
+        for (const defender of military) {
+          if (
+            !defender.attackTask &&
+            defender.activity === "idle" &&
+            this.options.canReach(defender, basePosition)
+          ) {
+            this.options.executeCommand({
+              type: "move",
+              playerId: ai.playerId,
+              unitIds: [defender.id],
+              target: basePosition
+            });
+          }
+        }
+      }
+
+      return true;
+    }
+
+    for (const defender of military) {
+      const target = [...threats].sort(
+        (a, b) =>
+          distance(defender.position, a.position) -
+            distance(defender.position, b.position) ||
+          a.id.localeCompare(b.id)
+      )[0];
+
+      if (!target) {
+        continue;
+      }
+
+      this.options.executeCommand({
+        type: "attack",
+        playerId: ai.playerId,
+        unitIds: [defender.id],
+        targetUnitId: target.id
+      });
+    }
+
+    for (const villager of villagers) {
+      const nearestThreat = [...threats].sort(
+        (a, b) =>
+          distance(villager.position, a.position) -
+            distance(villager.position, b.position) ||
+          a.id.localeCompare(b.id)
+      )[0];
+
+      if (
+        !nearestThreat ||
+        distance(villager.position, nearestThreat.position) >
+          DEFENSE_RETREAT_TRIGGER_RADIUS
+      ) {
+        continue;
+      }
+
+      const retreatTarget = this.findRetreatTarget(
+        villager,
+        nearestThreat,
+        basePosition
+      );
+
+      if (!retreatTarget) {
+        continue;
+      }
+
+      this.options.executeCommand({
+        type: "move",
+        playerId: ai.playerId,
+        unitIds: [villager.id],
+        target: retreatTarget
+      });
+    }
+
+    return true;
+  }
+
+  private findRetreatTarget(
+    villager: TUnit,
+    threat: TUnit,
+    basePosition: Vector2 | undefined
+  ): Vector2 | undefined {
+    const dx = villager.position.x - threat.position.x;
+    const dy = villager.position.y - threat.position.y;
+    const magnitude = Math.hypot(dx, dy);
+    const awayTarget =
+      magnitude > ARRIVAL_EPSILON
+        ? {
+            x: villager.position.x + (dx / magnitude) * 3,
+            y: villager.position.y + (dy / magnitude) * 3
+          }
+        : undefined;
+
+    if (
+      awayTarget &&
+      this.options.canReach(villager, awayTarget)
+    ) {
+      return awayTarget;
+    }
+
+    if (
+      basePosition &&
+      this.options.canReach(villager, basePosition)
+    ) {
+      return basePosition;
+    }
+
+    return undefined;
+  }
+
+  private buildingCenter(building: BuildingState): Vector2 {
+    const definition = this.options.buildingDefinitions.get(building.kind);
+
+    return {
+      x:
+        building.position.x +
+        (definition?.footprint.width ?? 1) / 2,
+      y:
+        building.position.y +
+        (definition?.footprint.height ?? 1) / 2
+    };
   }
 
   private tryConstruct(
