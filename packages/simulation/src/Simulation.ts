@@ -448,6 +448,11 @@ export class Simulation {
       this.units
     ).sort((a, b) => a.id.localeCompare(b.id));
 
+    if (controllableUnits.length === 0) {
+      this.rejectCommand(command, "no-controllable-units");
+      return;
+    }
+
     if (!fromQueue && command.queueMode === "append") {
       this.enqueueUnitOrderGroup(command, controllableUnits);
       return;
@@ -463,6 +468,7 @@ export class Simulation {
     );
 
     const reservedTargetIndices = new Set<number>();
+    let assignedUnits = 0;
 
     controllableUnits.forEach((unit, index) => {
       this.clearWorkTasks(unit);
@@ -481,7 +487,12 @@ export class Simulation {
       }
 
       reservedTargetIndices.add(assignedTargetIndex);
+      assignedUnits += 1;
     });
+
+    if (assignedUnits === 0) {
+      this.rejectCommand(command, "unreachable");
+    }
   }
 
   private applyGatherCommand(
@@ -494,6 +505,11 @@ export class Simulation {
       this.units
     );
 
+    if (villagers.length === 0) {
+      this.rejectCommand(command, "villager-required");
+      return;
+    }
+
     if (!fromQueue && command.queueMode === "append") {
       this.enqueueUnitOrderGroup(command, villagers);
       return;
@@ -502,6 +518,7 @@ export class Simulation {
     const resource = this.resources.get(command.resourceId);
 
     if (!resource || resource.amount <= ARRIVAL_EPSILON) {
+      this.rejectCommand(command, "invalid-resource");
       return;
     }
 
@@ -540,6 +557,11 @@ export class Simulation {
       this.units
     );
 
+    if (builders.length === 0) {
+      this.rejectCommand(command, "villager-required");
+      return;
+    }
+
     if (!fromQueue && command.queueMode === "append") {
       this.enqueueUnitOrderGroup(command, builders);
       return;
@@ -548,6 +570,7 @@ export class Simulation {
     const definition = this.buildingDefinitions.get(command.buildingKind);
 
     if (!definition) {
+      this.rejectCommand(command, "invalid-building");
       return;
     }
 
@@ -557,6 +580,7 @@ export class Simulation {
     };
 
     if (!this.constructionSystem.canPlaceBuilding(definition, position)) {
+      this.rejectCommand(command, "invalid-placement");
       return;
     }
 
@@ -574,12 +598,14 @@ export class Simulation {
       );
 
     if (buildersWithTargets.length === 0) {
+      this.rejectCommand(command, "unreachable");
       return;
     }
 
     const stockpile = this.ensureStockpile(command.playerId);
 
     if (!hasResources(stockpile, definition.cost)) {
+      this.rejectCommand(command, "insufficient-resources");
       return;
     }
 
@@ -624,10 +650,26 @@ export class Simulation {
   }
 
   private applyTrainCommand(command: TrainCommand): void {
+    const building = this.buildings.get(command.buildingId);
+    const definition = this.unitDefinitions.get(command.unitKind);
+    const rejection = this.productionSystem.getTrainingRejectionReason(
+      command.playerId,
+      building,
+      definition,
+      this.units.values(),
+      this.buildings.values(),
+      this.currentStockpile(command.playerId)
+    );
+
+    if (rejection) {
+      this.rejectCommand(command, rejection);
+      return;
+    }
+
     this.productionSystem.startTraining(
       command.playerId,
-      this.buildings.get(command.buildingId),
-      this.unitDefinitions.get(command.unitKind),
+      building,
+      definition,
       this.units.values(),
       this.buildings.values(),
       () => this.ensureStockpile(command.playerId)
@@ -635,10 +677,26 @@ export class Simulation {
   }
 
   private applyResearchCommand(command: ResearchCommand): void {
+    const building = this.buildings.get(command.buildingId);
+    const definition = this.technologyDefinitions.get(
+      command.technologyKind
+    );
+    const rejection = this.researchSystem.getResearchRejectionReason(
+      command.playerId,
+      building,
+      definition,
+      this.currentStockpile(command.playerId)
+    );
+
+    if (rejection) {
+      this.rejectCommand(command, rejection);
+      return;
+    }
+
     this.researchSystem.startResearch(
       command.playerId,
-      this.buildings.get(command.buildingId),
-      this.technologyDefinitions.get(command.technologyKind),
+      building,
+      definition,
       () => this.ensureStockpile(command.playerId)
     );
   }
@@ -647,12 +705,14 @@ export class Simulation {
     const building = this.buildings.get(command.buildingId);
 
     if (!canSetRallyPoint(building, command.playerId)) {
+      this.rejectCommand(command, "invalid-building");
       return;
     }
 
     const resolved = this.navigation.resolveTarget(command.target);
 
     if (!resolved) {
+      this.rejectCommand(command, "unreachable");
       return;
     }
 
@@ -670,6 +730,11 @@ export class Simulation {
       this.unitDefinitions
     );
 
+    if (attackers.length === 0) {
+      this.rejectCommand(command, "combat-unit-required");
+      return;
+    }
+
     if (!fromQueue && command.queueMode === "append") {
       this.enqueueUnitOrderGroup(command, attackers);
       return;
@@ -678,6 +743,7 @@ export class Simulation {
     const target = this.units.get(command.targetUnitId);
 
     if (!canAttackUnitTarget(target, command.playerId)) {
+      this.rejectCommand(command, "invalid-target");
       return;
     }
 
@@ -715,6 +781,11 @@ export class Simulation {
       this.unitDefinitions
     );
 
+    if (attackers.length === 0) {
+      this.rejectCommand(command, "combat-unit-required");
+      return;
+    }
+
     if (!fromQueue && command.queueMode === "append") {
       this.enqueueUnitOrderGroup(command, attackers);
       return;
@@ -723,12 +794,14 @@ export class Simulation {
     const target = this.buildings.get(command.targetBuildingId);
 
     if (!canAttackBuildingTarget(target, command.playerId)) {
+      this.rejectCommand(command, "invalid-target");
       return;
     }
 
     const targetDefinition = this.buildingDefinitions.get(target.kind);
 
     if (!targetDefinition) {
+      this.rejectCommand(command, "invalid-target");
       return;
     }
 
@@ -766,6 +839,11 @@ export class Simulation {
       command.playerId,
       this.units
     );
+
+    if (units.length === 0) {
+      this.rejectCommand(command, "no-controllable-units");
+      return;
+    }
 
     for (const unit of units) {
       this.clearQueuedOrders(unit);
