@@ -421,7 +421,9 @@ export class WorldScene extends Phaser.Scene {
     const transform = fixedViewportTransform(
       this.cameras.main.zoom,
       this.scale.width,
-      this.scale.height
+      this.scale.height,
+      this.cameras.main.originX,
+      this.cameras.main.originY
     );
 
     for (const container of [
