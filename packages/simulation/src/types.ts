@@ -174,6 +174,7 @@ export type AiMode =
   | "waiting"
   | "economy"
   | "military"
+  | "defending"
   | "attacking"
   | "idle";
 
