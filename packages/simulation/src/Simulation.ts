@@ -35,6 +35,8 @@ import type {
   BuildCommand,
   BuildingDefinition,
   BuildingState,
+  CommandRejectionEvent,
+  CommandRejectionReason,
   DropOffPointState,
   GameCommand,
   GatherCommand,
@@ -62,6 +64,7 @@ export const DEFAULT_TICK_RATE = 20;
 
 const DEFAULT_MAP_SIZE = 64;
 const ARRIVAL_EPSILON = 0.000001;
+const MAX_COMMAND_REJECTIONS = 64;
 
 type UnitActionCommand =
   | MoveCommand
@@ -92,6 +95,7 @@ export class Simulation {
   private nextBuildingSequence = 1;
   private nextUnitSequence = 1;
   private nextOrderGroupSequence = 1;
+  private nextCommandRejectionSequence = 1;
   private readonly navigation: GridNavigation;
   private readonly movementSystem: MovementSystem<RuntimeUnit>;
   private readonly units = new Map<string, RuntimeUnit>();
@@ -115,6 +119,7 @@ export class Simulation {
     reason: null
   };
   private readonly commandQueue: GameCommand[] = [];
+  private readonly commandRejections: CommandRejectionEvent[] = [];
   private readonly queuedOrderGroups = new Map<number, Set<string>>();
 
   constructor(options: SimulationOptions = {}) {
@@ -324,6 +329,19 @@ export class Simulation {
 
   queueCommand(command: GameCommand): void {
     this.commandQueue.push(cloneCommand(command));
+  }
+
+  getCommandRejectionsSince(
+    sequence: number,
+    playerId?: string
+  ): readonly CommandRejectionEvent[] {
+    return this.commandRejections
+      .filter(
+        (event) =>
+          event.sequence > sequence &&
+          (playerId === undefined || event.playerId === playerId)
+      )
+      .map((event) => ({ ...event }));
   }
 
   step(): void {
@@ -1028,6 +1046,35 @@ export class Simulation {
     }
 
     return [...ids].sort();
+  }
+
+  private rejectCommand(
+    command: GameCommand,
+    reason: CommandRejectionReason
+  ): void {
+    this.commandRejections.push({
+      sequence: this.nextCommandRejectionSequence,
+      tick: this.tick,
+      playerId: command.playerId,
+      commandType: command.type,
+      reason
+    });
+    this.nextCommandRejectionSequence += 1;
+
+    if (this.commandRejections.length > MAX_COMMAND_REJECTIONS) {
+      this.commandRejections.splice(
+        0,
+        this.commandRejections.length - MAX_COMMAND_REJECTIONS
+      );
+    }
+  }
+
+  private currentStockpile(playerId: string): ResourceStockpile {
+    const stockpile = this.stockpiles.get(playerId);
+
+    return stockpile
+      ? { ...stockpile }
+      : { wood: 0, food: 0, gold: 0 };
   }
 
   private ensureStockpile(playerId: string): ResourceStockpile {
