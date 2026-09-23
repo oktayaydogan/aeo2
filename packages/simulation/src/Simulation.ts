@@ -678,7 +678,8 @@ export class Simulation {
       unit.buildTask = undefined;
       unit.attackTask = {
         targetType: "unit",
-        targetId: target.id
+        targetId: target.id,
+        origin: { ...unit.position }
       };
       unit.activity = "attacking";
       this.combatSystem.routeAttackerToTarget(unit, target, definition);
@@ -728,7 +729,8 @@ export class Simulation {
       unit.buildTask = undefined;
       unit.attackTask = {
         targetType: "building",
-        targetId: target.id
+        targetId: target.id,
+        origin: { ...unit.position }
       };
       unit.activity = "attacking";
       this.combatSystem.routeAttackerToBuilding(
