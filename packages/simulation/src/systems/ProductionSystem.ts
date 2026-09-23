@@ -1,10 +1,12 @@
 import {
   canStartTraining,
-  hasResources
+  hasResources,
+  trainingRejectionReason
 } from "../commands/commandValidation";
 import type {
   BuildingDefinition,
   BuildingKind,
+  CommandRejectionReason,
   BuildingState,
   PlayerPopulationState,
   ResourceStockpile,
@@ -77,6 +79,35 @@ export class ProductionSystem {
       queued,
       cap
     };
+  }
+
+  getTrainingRejectionReason(
+    playerId: string,
+    building: BuildingState | undefined,
+    definition: UnitDefinition | undefined,
+    units: Iterable<UnitState>,
+    buildings: Iterable<BuildingState>,
+    stockpile: ResourceStockpile
+  ): CommandRejectionReason | null {
+    const population = this.calculatePopulation(
+      playerId,
+      units,
+      buildings
+    );
+
+    return trainingRejectionReason({
+      building,
+      definition,
+      playerId,
+      canBuildingTrainUnit: Boolean(
+        building &&
+          definition &&
+          this.canBuildingTrainUnit(building.kind, definition.kind)
+      ),
+      population,
+      maxTrainingQueue: MAX_TRAINING_QUEUE,
+      stockpile
+    });
   }
 
   startTraining(
