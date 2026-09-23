@@ -81,7 +81,7 @@ export class UiScene extends Phaser.Scene {
   private renderUi(): void {
     const worldScene = this.worldScene;
 
-    if (!worldScene || !worldScene.scene.isActive()) {
+    if (!worldScene || !worldScene.sys.isActive()) {
       return;
     }
 
