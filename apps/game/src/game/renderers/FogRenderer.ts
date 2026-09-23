@@ -1,9 +1,9 @@
 import Phaser from "phaser";
 import { BUILDING_DEFINITIONS } from "@aeo2/content";
-import type {
-  BuildingState,
-  SimulationSnapshot,
-  UnitState
+import {
+  buildingVisionRadius,
+  unitVisionRadius,
+  type SimulationSnapshot
 } from "@aeo2/simulation";
 import { gridToScreen, type IsometricProjection } from "../isometric";
 import { FogOfWar, type VisibilityState } from "../visibility";
@@ -140,27 +140,4 @@ export class FogRenderer {
       }
     }
   }
-}
-
-function unitVisionRadius(unit: UnitState): number {
-  if (unit.kind === "archer") {
-    return 6;
-  }
-  if (unit.kind === "spearman") {
-    return 5.4;
-  }
-  return unit.kind === "militia" ? 5.2 : 4.4;
-}
-
-function buildingVisionRadius(building: BuildingState): number {
-  if (building.kind === "town-center") {
-    return 6.4;
-  }
-  if (
-    building.kind === "barracks" ||
-    building.kind === "archery-range"
-  ) {
-    return 4.6;
-  }
-  return 3.6;
 }

@@ -18,6 +18,10 @@ import {
   createAiEconomyPlan,
   type AiSpendingReservation
 } from "./AiEconomyPlanner";
+import {
+  AiKnowledgeSystem,
+  type AiKnowledgeSnapshot
+} from "./AiKnowledgeSystem";
 import { MAX_TRAINING_QUEUE } from "./ProductionSystem";
 
 const ARRIVAL_EPSILON = 0.000001;
@@ -30,6 +34,8 @@ export interface AiUnit extends UnitState {
 
 export interface AiSystemOptions<TUnit extends AiUnit> {
   tickRate: number;
+  mapWidth: number;
+  mapHeight: number;
   definitions: readonly AiPlayerDefinition[];
   units: Map<string, TUnit>;
   buildings: Map<string, BuildingState>;
@@ -53,8 +59,17 @@ export interface AiSystemOptions<TUnit extends AiUnit> {
 export class AiSystem<TUnit extends AiUnit> {
   private readonly definitions: readonly AiPlayerDefinition[];
   private readonly states = new Map<string, AiPlayerState>();
+  private readonly knowledgeSystem: AiKnowledgeSystem<TUnit>;
 
   constructor(private readonly options: AiSystemOptions<TUnit>) {
+    this.knowledgeSystem = new AiKnowledgeSystem({
+      width: options.mapWidth,
+      height: options.mapHeight,
+      units: options.units,
+      buildings: options.buildings,
+      resources: options.resources,
+      buildingDefinitions: options.buildingDefinitions
+    });
     this.definitions = options.definitions.map((definition) => ({
       ...definition,
       thinkIntervalTicks:
@@ -77,8 +92,20 @@ export class AiSystem<TUnit extends AiUnit> {
     return [...this.states.values()].map((state) => ({ ...state }));
   }
 
+  getKnowledgeStates(): readonly AiKnowledgeSnapshot[] {
+    return this.definitions.map((definition) =>
+      this.knowledgeSystem.getSnapshot(definition.playerId)
+    );
+  }
+
   process(tick: number): void {
     for (const ai of this.definitions) {
+      this.knowledgeSystem.update(
+        ai.playerId,
+        ai.enemyPlayerId,
+        tick
+      );
+
       const interval = Math.max(
         1,
         ai.thinkIntervalTicks ?? this.options.tickRate
@@ -198,6 +225,7 @@ export class AiSystem<TUnit extends AiUnit> {
         idleVillagers.forEach((villager, index) => {
           const desiredKind = desiredKinds[index] ?? "food";
           const resource = this.findNearestResource(
+            ai.playerId,
             villager,
             desiredKind
           );
@@ -335,24 +363,26 @@ export class AiSystem<TUnit extends AiUnit> {
         continue;
       }
 
+      const visibleEnemyUnitIds =
+        this.knowledgeSystem.getVisibleEnemyUnitIds(ai.playerId);
       const enemyUnits = [...this.options.units.values()]
-        .filter((unit) => unit.ownerId === ai.enemyPlayerId)
-        .sort((a, b) => a.id.localeCompare(b.id));
-      const enemyBuildings = [...this.options.buildings.values()]
         .filter(
-          (building) =>
-            building.ownerId === ai.enemyPlayerId &&
-            building.completed
+          (unit) =>
+            unit.ownerId === ai.enemyPlayerId &&
+            visibleEnemyUnitIds.has(unit.id)
         )
-        .sort((a, b) => {
-          if (a.kind === "town-center" && b.kind !== "town-center") {
-            return -1;
-          }
-          if (b.kind === "town-center" && a.kind !== "town-center") {
-            return 1;
-          }
-          return a.id.localeCompare(b.id);
-        });
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const enemyBuildings = [
+        ...this.knowledgeSystem.getRememberedEnemyBuildings(ai.playerId)
+      ].sort((a, b) => {
+        if (a.kind === "town-center" && b.kind !== "town-center") {
+          return -1;
+        }
+        if (b.kind === "town-center" && a.kind !== "town-center") {
+          return 1;
+        }
+        return a.id.localeCompare(b.id);
+      });
 
       if (enemyUnits.length === 0 && enemyBuildings.length === 0) {
         if (state) {
@@ -617,10 +647,13 @@ export class AiSystem<TUnit extends AiUnit> {
   }
 
   private findNearestResource(
+    playerId: string,
     unit: TUnit,
     kind: ResourceKind
   ): ResourceNodeState | undefined {
-    const available = [...this.options.resources.values()]
+    const available = [
+      ...this.knowledgeSystem.getKnownResources(playerId)
+    ]
       .filter(
         (resource) =>
           resource.amount > ARRIVAL_EPSILON &&
