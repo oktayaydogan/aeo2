@@ -23,6 +23,7 @@ import {
 } from "../isometric";
 import { CameraController } from "../input/CameraController";
 import { initialCameraZoom } from "../input/cameraViewport";
+import { fixedViewportTransform } from "../fixedViewport";
 import { CommandController } from "../input/CommandController";
 import { ControlGroupManager } from "../input/controlGroups";
 import { HotkeyController } from "../input/HotkeyController";
@@ -242,6 +243,8 @@ export class WorldScene extends Phaser.Scene {
   private resourceRenderer?: ResourceRenderer;
   private selectionRenderer?: SelectionRenderer;
   private unitRenderer?: UnitRenderer;
+  private selectionOverlay?: Phaser.GameObjects.Container;
+  private debugOverlay?: Phaser.GameObjects.Container;
   private selectionGraphics?: Phaser.GameObjects.Graphics;
   private placementGraphics?: Phaser.GameObjects.Graphics;
   private hudAdapter?: HudAdapter;
@@ -259,10 +262,15 @@ export class WorldScene extends Phaser.Scene {
     this.drawMap();
     const initialSnapshot = this.simulation.getSnapshot();
 
+    this.selectionOverlay = this.add
+      .container(0, 0)
+      .setScrollFactor(0)
+      .setDepth(99_999);
     this.selectionGraphics = this.add
       .graphics()
-      .setScrollFactor(0)
-      .setDepth(100_000);
+      .setScrollFactor(1)
+      .setDepth(0);
+    this.selectionOverlay.add(this.selectionGraphics);
 
     this.selectionRenderer = new SelectionRenderer(this);
     this.commandFeedbackRenderer = new CommandFeedbackRenderer(this);
@@ -321,6 +329,11 @@ export class WorldScene extends Phaser.Scene {
         this.issueResearchCommand(technologyKind)
     });
 
+    this.debugOverlay = this.add
+      .container(0, 0)
+      .setScrollFactor(0)
+      .setDepth(110_000);
+
     this.metricsText = this.add
       .text(14, 54, "", {
         fontFamily: "monospace",
@@ -329,9 +342,10 @@ export class WorldScene extends Phaser.Scene {
         backgroundColor: "#091017bb",
         padding: { x: 8, y: 6 }
       })
-      .setScrollFactor(0)
-      .setDepth(100_001)
+      .setScrollFactor(1)
+      .setDepth(0)
       .setVisible(BENCHMARK_MODE);
+    this.debugOverlay.add(this.metricsText);
 
     this.configureInput();
 
@@ -367,6 +381,7 @@ export class WorldScene extends Phaser.Scene {
       initialFocusWorld.x,
       initialFocusWorld.y
     );
+    this.syncFixedViewportOverlays();
 
     this.updateVisibility(FOG_UPDATE_INTERVAL_MS, initialSnapshot);
     this.renderSnapshot(initialSnapshot);
@@ -376,6 +391,7 @@ export class WorldScene extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     this.cameraController?.update(delta);
+    this.syncFixedViewportOverlays();
     this.accumulatorMs += Math.min(delta, 250);
 
     while (this.accumulatorMs >= this.simulation.tickDurationMs) {
@@ -399,6 +415,25 @@ export class WorldScene extends Phaser.Scene {
     this.hudAdapter?.layout(snapshot);
     this.hudAdapter?.update(snapshot);
     this.hudAdapter?.updateMatchOverlay(snapshot);
+  }
+
+  private syncFixedViewportOverlays(): void {
+    const transform = fixedViewportTransform(
+      this.cameras.main.zoom,
+      this.scale.width,
+      this.scale.height,
+      this.cameras.main.originX,
+      this.cameras.main.originY
+    );
+
+    for (const container of [
+      this.selectionOverlay,
+      this.debugOverlay
+    ]) {
+      container
+        ?.setPosition(transform.x, transform.y)
+        .setScale(transform.scale);
+    }
   }
 
   private drawMap(): void {
