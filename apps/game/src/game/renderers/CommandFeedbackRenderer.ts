@@ -1,4 +1,6 @@
 import Phaser from "phaser";
+import type { CommandRejectionEvent } from "@aeo2/simulation";
+import { commandRejectionMessage } from "../commandRejectionFeedback";
 import {
   cursorForCommandIntent,
   labelForCommandIntent,
@@ -8,6 +10,9 @@ import {
 const FEEDBACK_DEPTH = 99_500;
 
 export class CommandFeedbackRenderer {
+  private lastRejectionSequence = 0;
+  private rejectionText?: Phaser.GameObjects.Text;
+
   constructor(private readonly scene: Phaser.Scene) {}
 
   setCursor(intent: CommandIntent): void {
@@ -71,8 +76,75 @@ export class CommandFeedbackRenderer {
     });
   }
 
+  syncAuthoritativeRejections(
+    events: readonly CommandRejectionEvent[]
+  ): void {
+    const unseen = events.filter(
+      (event) => event.sequence > this.lastRejectionSequence
+    );
+
+    if (unseen.length === 0) {
+      return;
+    }
+
+    const latest = unseen[unseen.length - 1];
+
+    if (!latest) {
+      return;
+    }
+
+    this.lastRejectionSequence = Math.max(
+      ...unseen.map((event) => event.sequence)
+    );
+    this.showRejectionToast(
+      commandRejectionMessage(latest.reason)
+    );
+  }
+
   resetCursor(): void {
     this.setCursor("none");
+  }
+
+  private showRejectionToast(message: string): void {
+    if (this.rejectionText?.active) {
+      this.scene.tweens.killTweensOf(this.rejectionText);
+      this.rejectionText.destroy();
+    }
+
+    const text = this.scene.add
+      .text(
+        this.scene.scale.width / 2,
+        this.scene.scale.height - 138,
+        message,
+        {
+          fontFamily: "Inter, Arial, sans-serif",
+          fontSize: "13px",
+          fontStyle: "bold",
+          color: "#ffe8df",
+          backgroundColor: "#381d1be8",
+          padding: { x: 10, y: 6 }
+        }
+      )
+      .setOrigin(0.5, 1)
+      .setScrollFactor(0)
+      .setDepth(FEEDBACK_DEPTH + 20_000);
+
+    this.rejectionText = text;
+
+    this.scene.tweens.add({
+      targets: text,
+      alpha: 0,
+      y: text.y - 10,
+      delay: 700,
+      duration: 500,
+      ease: "Cubic.Out",
+      onComplete: () => {
+        if (this.rejectionText === text) {
+          this.rejectionText = undefined;
+        }
+        text.destroy();
+      }
+    });
   }
 }
 
