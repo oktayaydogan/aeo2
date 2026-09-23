@@ -204,7 +204,9 @@ export class MinimapAdapter {
     const transform = fixedViewportTransform(
       scene.cameras.main.zoom,
       scene.scale.width,
-      scene.scale.height
+      scene.scale.height,
+      scene.cameras.main.originX,
+      scene.cameras.main.originY
     );
 
     this.viewportContainer
