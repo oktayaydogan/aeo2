@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { UiScene } from "./scenes/UiScene";
 import { WorldScene } from "./scenes/WorldScene";
 
 export function createGame(parent: HTMLElement): Phaser.Game {
@@ -12,7 +13,7 @@ export function createGame(parent: HTMLElement): Phaser.Game {
       width: "100%",
       height: "100%"
     },
-    scene: [WorldScene]
+    scene: [WorldScene, UiScene]
   });
 
   game.canvas.addEventListener("contextmenu", event => event.preventDefault());
