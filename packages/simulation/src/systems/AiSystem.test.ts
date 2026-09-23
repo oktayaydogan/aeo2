@@ -79,6 +79,7 @@ function createSystem(): {
     hasTechnology: () => false,
     canPlaceBuilding: () => false,
     findBuildApproach: () => null,
+    canReach: () => true,
     executeCommand: (command) => {
       commands.push(command);
     }
