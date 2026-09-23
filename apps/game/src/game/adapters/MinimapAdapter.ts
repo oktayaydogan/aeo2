@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import type { ResourceNodeState, SimulationSnapshot } from "@aeo2/simulation";
-import { fixedViewportTransform } from "../fixedViewport";
 import { gridToScreen, screenToGrid, type IsometricProjection } from "../isometric";
 import type { FogRenderer } from "../renderers/FogRenderer";
 
@@ -12,46 +11,35 @@ export interface MinimapAdapterOptions {
   size: number;
   margin: number;
   benchmarkMode: boolean;
+  getWorldCameraMidPoint(): { x: number; y: number };
+  centerWorldCamera(x: number, y: number): void;
 }
 
 export class MinimapAdapter {
-  private readonly viewportContainer: Phaser.GameObjects.Container;
   private readonly graphics: Phaser.GameObjects.Graphics;
   private readonly hitArea: Phaser.GameObjects.Rectangle;
 
   constructor(private readonly options: MinimapAdapterOptions) {
-    this.viewportContainer = options.scene.add
-      .container(0, 0)
+    this.graphics = options.scene.add
+      .graphics()
       .setScrollFactor(0)
       .setDepth(100_002);
 
-    this.graphics = options.scene.add
-      .graphics()
-      .setScrollFactor(1)
-      .setDepth(0);
-
     this.hitArea = options.scene.add
       .rectangle(0, 0, options.size, options.size, 0x000000, 0.001)
-      .setScrollFactor(1)
-      .setDepth(1)
+      .setScrollFactor(0)
+      .setDepth(100_003)
       .setInteractive({ useHandCursor: true });
 
     this.hitArea.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       this.centerCamera(pointer);
     });
-
-    this.viewportContainer.add([
-      this.graphics,
-      this.hitArea
-    ]);
-    this.syncViewport();
   }
 
   render(snapshot: SimulationSnapshot): void {
     if (this.options.benchmarkMode) {
       this.graphics.clear();
       this.hitArea.setVisible(false);
-      this.syncViewport();
       return;
     }
 
@@ -170,8 +158,8 @@ export class MinimapAdapter {
 
     const cameraGrid = screenToGrid(
       {
-        x: this.options.scene.cameras.main.midPoint.x,
-        y: this.options.scene.cameras.main.midPoint.y
+        x: this.options.getWorldCameraMidPoint().x,
+        y: this.options.getWorldCameraMidPoint().y
       },
       this.options.projection
     );
@@ -191,27 +179,11 @@ export class MinimapAdapter {
       14,
       10
     );
-
-    this.syncViewport();
   }
 
   destroy(): void {
-    this.viewportContainer.destroy(true);
-  }
-
-  private syncViewport(): void {
-    const scene = this.options.scene;
-    const transform = fixedViewportTransform(
-      scene.cameras.main.zoom,
-      scene.scale.width,
-      scene.scale.height,
-      scene.cameras.main.originX,
-      scene.cameras.main.originY
-    );
-
-    this.viewportContainer
-      .setPosition(transform.x, transform.y)
-      .setScale(transform.scale);
+    this.graphics.destroy();
+    this.hitArea.destroy();
   }
 
   private centerCamera(pointer: Phaser.Input.Pointer): void {
@@ -237,7 +209,7 @@ export class MinimapAdapter {
     };
     const worldPoint = gridToScreen(mapPoint, this.options.projection);
 
-    this.options.scene.cameras.main.centerOn(worldPoint.x, worldPoint.y);
+    this.options.centerWorldCamera(worldPoint.x, worldPoint.y);
   }
 
   private originX(): number {
