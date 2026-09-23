@@ -301,6 +301,21 @@ export class Simulation {
           definition,
           position
         ),
+      canReach: (unit, position) => {
+        const resolved = this.navigation.resolveTarget(position);
+
+        if (!resolved) {
+          return false;
+        }
+
+        return (
+          Math.hypot(
+            unit.position.x - resolved.x,
+            unit.position.y - resolved.y
+          ) <= ARRIVAL_EPSILON ||
+          this.navigation.findPath(unit.position, resolved).length > 0
+        );
+      },
       executeCommand: (command) => this.applyCommand(command)
     });
   }
