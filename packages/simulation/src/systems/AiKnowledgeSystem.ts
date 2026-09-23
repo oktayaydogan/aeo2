@@ -201,7 +201,9 @@ export class AiKnowledgeSystem<TUnit extends UnitState> {
 
   getSnapshot(playerId: string): AiKnowledgeSnapshot {
     const knowledge = this.ensurePlayer(playerId);
-    const sortById = <T extends { id: string }>(entries: Iterable<T>) =>
+    const sortById = <T extends { id: string; position: Vector2 }>(
+      entries: Iterable<T>
+    ) =>
       [...entries]
         .map((entry) => ({
           ...entry,
