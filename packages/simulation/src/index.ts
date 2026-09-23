@@ -20,6 +20,7 @@ export type {
   BuildingKind,
   BuildingState,
   CargoState,
+  CombatTag,
   DropOffPointState,
   GameCommand,
   GatherCommand,
