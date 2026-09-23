@@ -3,7 +3,10 @@ import {
   aiProfileFor,
   createSkirmishSearch,
   enemyResourcesFor,
+  isValidSkirmishSeed,
+  isValidSkirmishSettings,
   mapSizeFor,
+  normalizeSkirmishSeed,
   playerResourcesFor,
   readSkirmishSettings
 } from "./skirmishSettings";
@@ -40,6 +43,25 @@ describe("skirmish settings", () => {
     expect(mapSizeFor("small")).toBe(16);
     expect(mapSizeFor("standard")).toBe(20);
     expect(mapSizeFor("large")).toBe(28);
+  });
+
+  it("validates seed bounds and complete settings", () => {
+    expect(isValidSkirmishSeed(1)).toBe(true);
+    expect(isValidSkirmishSeed(0xffffffff)).toBe(true);
+    expect(isValidSkirmishSeed(0)).toBe(false);
+    expect(isValidSkirmishSeed(1.5)).toBe(false);
+    expect(isValidSkirmishSeed(0x100000000)).toBe(false);
+    expect(normalizeSkirmishSeed(0)).toBe(1);
+    expect(normalizeSkirmishSeed(0x100000000)).toBe(0xffffffff);
+
+    expect(
+      isValidSkirmishSettings({
+        seed: 42,
+        aiDifficulty: "standard",
+        startingResources: "standard",
+        mapSize: "standard"
+      })
+    ).toBe(true);
   });
 
   it("keeps current standard AI and resource defaults intact", () => {

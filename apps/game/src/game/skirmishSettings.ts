@@ -22,6 +22,9 @@ export interface ResourcePreset {
   gold: number;
 }
 
+export const MIN_SKIRMISH_SEED = 1;
+export const MAX_SKIRMISH_SEED = 0xffffffff;
+
 export const DEFAULT_SKIRMISH_SETTINGS: SkirmishSettings = {
   seed: 20260920,
   aiDifficulty: "standard",
@@ -43,8 +46,8 @@ export function readSkirmishSettings(
 
   return {
     seed:
-      Number.isFinite(rawSeed) && rawSeed !== 0
-        ? Math.abs(rawSeed)
+      isValidSkirmishSeed(rawSeed)
+        ? rawSeed
         : DEFAULT_SKIRMISH_SETTINGS.seed,
     aiDifficulty: isAiDifficulty(rawDifficulty)
       ? rawDifficulty
@@ -68,12 +71,49 @@ export function createSkirmishSearch(
     params.set("play", "1");
   }
 
-  params.set("seed", String(Math.abs(Math.trunc(settings.seed)) || 1));
+  params.set("seed", String(normalizeSkirmishSeed(settings.seed)));
   params.set("ai", settings.aiDifficulty);
   params.set("resources", settings.startingResources);
   params.set("map", settings.mapSize);
 
   return params.toString();
+}
+
+export function normalizeSkirmishSeed(seed: number): number {
+  if (!Number.isFinite(seed)) {
+    return DEFAULT_SKIRMISH_SETTINGS.seed;
+  }
+
+  const normalized = Math.trunc(seed);
+
+  if (normalized < MIN_SKIRMISH_SEED) {
+    return MIN_SKIRMISH_SEED;
+  }
+
+  if (normalized > MAX_SKIRMISH_SEED) {
+    return MAX_SKIRMISH_SEED;
+  }
+
+  return normalized;
+}
+
+export function isValidSkirmishSeed(seed: number): boolean {
+  return (
+    Number.isInteger(seed) &&
+    seed >= MIN_SKIRMISH_SEED &&
+    seed <= MAX_SKIRMISH_SEED
+  );
+}
+
+export function isValidSkirmishSettings(
+  settings: SkirmishSettings
+): boolean {
+  return (
+    isValidSkirmishSeed(settings.seed) &&
+    isAiDifficulty(settings.aiDifficulty) &&
+    isStartingResourcesPreset(settings.startingResources) &&
+    isMapSizePreset(settings.mapSize)
+  );
 }
 
 export function mapSizeFor(preset: MapSizePreset): number {
