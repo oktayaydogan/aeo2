@@ -106,9 +106,12 @@ export interface PlayerPopulationState {
   cap: number;
 }
 
+export type CombatTag = string;
+
 export interface UnitAttackBonus {
-  targetKind: UnitKind;
   damage: number;
+  targetKind?: UnitKind;
+  targetTag?: CombatTag;
 }
 
 export interface UnitDefinition {
@@ -122,6 +125,10 @@ export interface UnitDefinition {
   attackRange: number;
   attackCooldownSeconds: number;
   populationCost: number;
+  armor?: number;
+  combatTags?: readonly CombatTag[];
+  acquisitionRange?: number;
+  maxChaseDistance?: number;
   bonuses?: readonly UnitAttackBonus[];
 }
 
@@ -136,6 +143,8 @@ export interface BuildingDefinition {
   buildTimeSeconds: number;
   maxHitPoints: number;
   populationProvided: number;
+  armor?: number;
+  combatTags?: readonly CombatTag[];
 }
 
 export interface TrainingQueueItemState {
