@@ -277,6 +277,8 @@ export class Simulation {
 
     this.aiSystem = new AiSystem({
       tickRate: this.tickRate,
+      mapWidth: this.navigation.width,
+      mapHeight: this.navigation.height,
       definitions: options.aiPlayers ?? [],
       units: this.units,
       buildings: this.buildings,
