@@ -345,6 +345,15 @@ export class WorldScene extends Phaser.Scene {
       this.scene.launch("ui");
     }
     this.scene.bringToTop("ui");
+
+    this.events.once(
+      Phaser.Scenes.Events.SHUTDOWN,
+      () => {
+        if (this.scene.isActive("ui")) {
+          this.scene.stop("ui");
+        }
+      }
+    );
   }
 
   override update(_time: number, delta: number): void {
