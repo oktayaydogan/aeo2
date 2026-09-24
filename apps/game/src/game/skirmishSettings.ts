@@ -119,11 +119,11 @@ export function isValidSkirmishSettings(
 export function mapSizeFor(preset: MapSizePreset): number {
   switch (preset) {
     case "small":
-      return 16;
+      return 32;
     case "large":
-      return 28;
+      return 64;
     default:
-      return 20;
+      return 48;
   }
 }
 
