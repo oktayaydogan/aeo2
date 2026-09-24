@@ -14,12 +14,14 @@ const GATHER_RETENTION_RANGE = GATHER_RANGE + MIN_UNIT_DISTANCE;
 const DROP_OFF_RANGE = 0.7;
 const VILLAGER_CARRY_CAPACITY = 10;
 const VILLAGER_GATHER_RATE = 4;
+const AUTO_RETARGET_RANGE = 3.5;
 
 export type GatherPhase = "to-resource" | "gathering" | "to-dropoff";
 
 export interface GatherTask {
   resourceId: string;
   phase: GatherPhase;
+  gatherTarget?: Vector2;
   dropOffPointId?: string;
   dropOffTarget?: Vector2;
 }
@@ -30,6 +32,8 @@ export interface EconomyUnit extends UnitState {
 }
 
 export class EconomySystem<TUnit extends EconomyUnit> {
+  private readonly depletedResourceIds = new Set<string>();
+
   constructor(
     private readonly tickRate: number,
     private readonly resources: Map<string, ResourceNodeState>,
@@ -39,7 +43,14 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     private readonly resolveDropOffTarget: (
       unit: TUnit,
       point: DropOffPointState
-    ) => Vector2 | null = (_unit, point) => ({ ...point.position })
+    ) => Vector2 | null = (_unit, point) => ({ ...point.position }),
+    private readonly resolveResourceTarget: (
+      unit: TUnit,
+      resource: ResourceNodeState
+    ) => Vector2 | null = (_unit, resource) => ({ ...resource.position }),
+    private readonly onResourceDepleted: (
+      resource: ResourceNodeState
+    ) => void = () => {}
   ) {}
 
   step(units: Iterable<TUnit>): void {
@@ -74,12 +85,21 @@ export class EconomySystem<TUnit extends EconomyUnit> {
       return;
     }
 
+    const gatherTarget = this.resolveResourceTarget(unit, resource);
+
+    if (!gatherTarget) {
+      this.stopGatherTask(unit);
+      return;
+    }
+
+    task.resourceId = resource.id;
     task.phase = "to-resource";
+    task.gatherTarget = { ...gatherTarget };
     task.dropOffPointId = undefined;
     task.dropOffTarget = undefined;
     unit.activity = "moving";
 
-    if (distance(unit.position, resource.position) <= GATHER_RANGE) {
+    if (distance(unit.position, gatherTarget) <= GATHER_RANGE) {
       unit.waypoints = [];
       unit.destination = null;
       task.phase = "gathering";
@@ -87,7 +107,7 @@ export class EconomySystem<TUnit extends EconomyUnit> {
       return;
     }
 
-    if (!this.assignPath(unit, resource.position)) {
+    if (!this.assignPath(unit, gatherTarget)) {
       this.stopGatherTask(unit);
     }
   }
@@ -135,15 +155,30 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     resource: ResourceNodeState
   ): void {
     if (resource.amount <= ARRIVAL_EPSILON) {
+      this.notifyResourceDepleted(resource);
+
       if (unit.cargo && unit.cargo.amount > ARRIVAL_EPSILON) {
         this.beginReturnToDropOff(unit, resource.kind);
-      } else {
+      } else if (!this.retargetNearbyResource(unit, resource)) {
         this.stopGatherTask(unit);
       }
       return;
     }
 
-    if (distance(unit.position, resource.position) <= GATHER_RANGE) {
+    const gatherTarget =
+      unit.gatherTask?.gatherTarget ??
+      this.resolveResourceTarget(unit, resource);
+
+    if (!gatherTarget) {
+      this.stopGatherTask(unit);
+      return;
+    }
+
+    if (unit.gatherTask) {
+      unit.gatherTask.gatherTarget = { ...gatherTarget };
+    }
+
+    if (distance(unit.position, gatherTarget) <= GATHER_RANGE) {
       unit.waypoints = [];
       unit.destination = null;
       unit.activity = "gathering";
@@ -163,7 +198,14 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     unit: TUnit,
     resource: ResourceNodeState
   ): void {
-    if (distance(unit.position, resource.position) > GATHER_RETENTION_RANGE) {
+    const gatherTarget =
+      unit.gatherTask?.gatherTarget ??
+      this.resolveResourceTarget(unit, resource);
+
+    if (
+      !gatherTarget ||
+      distance(unit.position, gatherTarget) > GATHER_RETENTION_RANGE
+    ) {
       this.routeVillagerToResource(unit, resource);
       return;
     }
@@ -201,6 +243,11 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     }
 
     resource.amount = Math.max(resource.amount - gatheredAmount, 0);
+
+    if (resource.amount <= ARRIVAL_EPSILON) {
+      this.notifyResourceDepleted(resource);
+    }
+
     unit.cargo = {
       kind: resource.kind,
       amount: existingCargoAmount + gatheredAmount
@@ -265,9 +312,58 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     if (resource.amount > ARRIVAL_EPSILON) {
       task.phase = "to-resource";
       this.routeVillagerToResource(unit, resource);
-    } else {
+    } else if (!this.retargetNearbyResource(unit, resource)) {
       this.stopGatherTask(unit);
     }
+  }
+
+  private retargetNearbyResource(
+    unit: TUnit,
+    depletedResource: ResourceNodeState
+  ): boolean {
+    const next = [...this.resources.values()]
+      .filter(
+        (resource) =>
+          resource.id !== depletedResource.id &&
+          resource.kind === depletedResource.kind &&
+          resource.amount > ARRIVAL_EPSILON &&
+          distance(resource.position, depletedResource.position) <=
+            AUTO_RETARGET_RANGE
+      )
+      .map((resource) => ({
+        resource,
+        target: this.resolveResourceTarget(unit, resource)
+      }))
+      .filter(
+        (
+          entry
+        ): entry is { resource: ResourceNodeState; target: Vector2 } =>
+          entry.target !== null
+      )
+      .sort(
+        (a, b) =>
+          distance(depletedResource.position, a.resource.position) -
+            distance(depletedResource.position, b.resource.position) ||
+          a.resource.id.localeCompare(b.resource.id)
+      )[0];
+
+    if (!next || !unit.gatherTask) {
+      return false;
+    }
+
+    unit.gatherTask.resourceId = next.resource.id;
+    unit.gatherTask.gatherTarget = { ...next.target };
+    this.routeVillagerToResource(unit, next.resource);
+    return Boolean(unit.gatherTask);
+  }
+
+  private notifyResourceDepleted(resource: ResourceNodeState): void {
+    if (this.depletedResourceIds.has(resource.id)) {
+      return;
+    }
+
+    this.depletedResourceIds.add(resource.id);
+    this.onResourceDepleted(resource);
   }
 
   private findNearestDropOffTarget(
