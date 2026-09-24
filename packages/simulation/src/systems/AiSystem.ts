@@ -30,6 +30,28 @@ const DEFENSE_WORKER_RADIUS = 4.5;
 const DEFENSE_BUILDING_RADIUS = 6;
 const DEFENSE_RETREAT_TRIGGER_RADIUS = 3.5;
 const DEFENSE_HYSTERESIS_SECONDS = 3;
+const ECONOMIC_EXPANSION_MIN_VILLAGERS = 4;
+const ECONOMIC_DROP_OFF_TRIGGER_DISTANCE = 7;
+const ECONOMIC_DROP_OFF_LOCAL_RADIUS = 7;
+const ECONOMIC_RESOURCE_ORDER: readonly ResourceKind[] = [
+  "wood",
+  "food",
+  "gold"
+];
+const ECONOMIC_BUILDING_BY_RESOURCE: Record<
+  ResourceKind,
+  BuildingState["kind"]
+> = {
+  wood: "wood-depot",
+  food: "granary",
+  gold: "ore-yard"
+};
+
+interface AiConstructionPlan {
+  buildingKind: BuildingState["kind"];
+  reservation: AiSpendingReservation;
+  near?: Vector2;
+}
 
 export interface AiUnit extends UnitState {
   gatherTask?: unknown;
@@ -172,7 +194,8 @@ export class AiSystem<TUnit extends AiUnit> {
       const constructionPlan = this.planConstruction(
         ai.playerId,
         population,
-        targetMilitary
+        targetMilitary,
+        villagers.length
       );
 
       if (
@@ -209,14 +232,15 @@ export class AiSystem<TUnit extends AiUnit> {
           this.tryConstruct(
             ai.playerId,
             availableBuilders,
-            constructionPlan.buildingKind
+            constructionPlan
           );
         }
 
         const activeConstructionPlan = this.planConstruction(
           ai.playerId,
           this.options.calculatePopulation(ai.playerId),
-          targetMilitary
+          targetMilitary,
+          villagers.length
         );
         const idleVillagers = villagers.filter(
           (unit) =>
@@ -270,7 +294,8 @@ export class AiSystem<TUnit extends AiUnit> {
       const activeConstructionReservation = this.planConstruction(
         ai.playerId,
         this.options.calculatePopulation(ai.playerId),
-        targetMilitary
+        targetMilitary,
+        villagers.length
       )?.reservation;
 
       if (
@@ -654,27 +679,35 @@ export class AiSystem<TUnit extends AiUnit> {
   private tryConstruct(
     playerId: string,
     builders: readonly TUnit[],
-    buildingKind: BuildingState["kind"]
+    plan: AiConstructionPlan
   ): boolean {
-    const builder = builders[0];
+    const builder = plan.near
+      ? [...builders].sort(
+          (a, b) =>
+            distance(a.position, plan.near as Vector2) -
+              distance(b.position, plan.near as Vector2) ||
+            a.id.localeCompare(b.id)
+        )[0]
+      : builders[0];
 
     if (!builder) {
       return false;
     }
 
-    return this.tryBuild(playerId, builder, buildingKind);
+    return this.tryBuild(
+      playerId,
+      builder,
+      plan.buildingKind,
+      plan.near
+    );
   }
 
   private planConstruction(
     playerId: string,
     population: PlayerPopulationState,
-    targetMilitary: number
-  ):
-    | {
-        buildingKind: BuildingState["kind"];
-        reservation: AiSpendingReservation;
-      }
-    | undefined {
+    targetMilitary: number,
+    villagerCount: number
+  ): AiConstructionPlan | undefined {
     const ownedBuildings = [...this.options.buildings.values()].filter(
       (building) => building.ownerId === playerId
     );
@@ -697,6 +730,22 @@ export class AiSystem<TUnit extends AiUnit> {
       return this.buildingReservation("barracks");
     }
 
+    const hasEconomicDropOff = ownedBuildings.some((building) => {
+      const definition = this.options.buildingDefinitions.get(
+        building.kind
+      );
+      return Boolean(definition?.dropOffAccepts?.length);
+    });
+    const economicPlan = this.planEconomicExpansion(
+      playerId,
+      villagerCount,
+      ownedBuildings
+    );
+
+    if (!hasEconomicDropOff && economicPlan) {
+      return economicPlan;
+    }
+
     const hasArcheryRange = ownedBuildings.some(
       (building) => building.kind === "archery-range"
     );
@@ -705,17 +754,115 @@ export class AiSystem<TUnit extends AiUnit> {
       return this.buildingReservation("archery-range");
     }
 
+    return economicPlan;
+  }
+
+  private planEconomicExpansion(
+    playerId: string,
+    villagerCount: number,
+    ownedBuildings: readonly BuildingState[]
+  ): AiConstructionPlan | undefined {
+    if (villagerCount < ECONOMIC_EXPANSION_MIN_VILLAGERS) {
+      return undefined;
+    }
+
+    const hasEconomicConstruction = ownedBuildings.some((building) => {
+      if (building.completed) {
+        return false;
+      }
+
+      const definition = this.options.buildingDefinitions.get(
+        building.kind
+      );
+      return Boolean(definition?.dropOffAccepts?.length);
+    });
+
+    if (hasEconomicConstruction) {
+      return undefined;
+    }
+
+    const knownResources = [
+      ...this.knowledgeSystem.getKnownResources(playerId)
+    ].filter((resource) => resource.amount > ARRIVAL_EPSILON);
+
+    for (const kind of ECONOMIC_RESOURCE_ORDER) {
+      const buildingKind = ECONOMIC_BUILDING_BY_RESOURCE[kind];
+
+      if (!this.options.buildingDefinitions.has(buildingKind)) {
+        continue;
+      }
+
+      const compatibleDropOffs = ownedBuildings.filter((building) => {
+        if (!building.completed) {
+          return false;
+        }
+
+        if (building.kind === "town-center") {
+          return true;
+        }
+
+        return Boolean(
+          this.options.buildingDefinitions
+            .get(building.kind)
+            ?.dropOffAccepts?.includes(kind)
+        );
+      });
+
+      if (compatibleDropOffs.length === 0) {
+        continue;
+      }
+
+      const sameKindBuildings = ownedBuildings.filter(
+        (building) => building.kind === buildingKind
+      );
+      const candidate = knownResources
+        .filter((resource) => resource.kind === kind)
+        .map((resource) => ({
+          resource,
+          dropOffDistance: Math.min(
+            ...compatibleDropOffs.map((building) =>
+              distance(
+                resource.position,
+                this.buildingCenter(building)
+              )
+            )
+          )
+        }))
+        .filter(
+          ({ resource, dropOffDistance }) =>
+            dropOffDistance >
+              ECONOMIC_DROP_OFF_TRIGGER_DISTANCE &&
+            !sameKindBuildings.some(
+              (building) =>
+                distance(
+                  resource.position,
+                  this.buildingCenter(building)
+                ) <= ECONOMIC_DROP_OFF_LOCAL_RADIUS
+            )
+        )
+        .sort(
+          (a, b) =>
+            a.dropOffDistance - b.dropOffDistance ||
+            a.resource.id.localeCompare(b.resource.id)
+        )[0];
+
+      if (!candidate) {
+        continue;
+      }
+
+      return this.buildingReservation(
+        buildingKind,
+        candidate.resource.position
+      );
+    }
+
     return undefined;
   }
 
   private buildingReservation(
-    buildingKind: BuildingState["kind"]
-  ):
-    | {
-        buildingKind: BuildingState["kind"];
-        reservation: AiSpendingReservation;
-      }
-    | undefined {
+    buildingKind: BuildingState["kind"],
+    near?: Vector2
+  ): AiConstructionPlan | undefined {
     const definition = this.options.buildingDefinitions.get(buildingKind);
 
     if (!definition) {
@@ -727,7 +874,8 @@ export class AiSystem<TUnit extends AiUnit> {
       reservation: {
         key: `build:${buildingKind}`,
         cost: { ...definition.cost }
-      }
+      },
+      near: near ? { ...near } : undefined
     };
   }
 
@@ -796,7 +944,8 @@ export class AiSystem<TUnit extends AiUnit> {
   private tryBuild(
     playerId: string,
     builder: TUnit,
-    buildingKind: BuildingState["kind"]
+    buildingKind: BuildingState["kind"],
+    near?: Vector2
   ): boolean {
     const definition = this.options.buildingDefinitions.get(buildingKind);
 
@@ -822,7 +971,7 @@ export class AiSystem<TUnit extends AiUnit> {
       return false;
     }
 
-    const offsets = [
+    const baseOffsets = [
       { x: -4, y: 0 },
       { x: -4, y: 4 },
       { x: -4, y: 8 },
@@ -833,11 +982,25 @@ export class AiSystem<TUnit extends AiUnit> {
       { x: -8, y: 5 },
       { x: 0, y: -5 }
     ] as const;
+    const expansionOffsets = [
+      { x: -3, y: -3 },
+      { x: 1, y: -3 },
+      { x: -3, y: 1 },
+      { x: 2, y: 1 },
+      { x: -4, y: 3 },
+      { x: 1, y: 3 },
+      { x: -5, y: -1 },
+      { x: 3, y: -1 }
+    ] as const;
+    const anchor = near
+      ? { x: Math.floor(near.x), y: Math.floor(near.y) }
+      : townCenter.position;
+    const offsets = near ? expansionOffsets : baseOffsets;
 
     for (const offset of offsets) {
       const position = {
-        x: townCenter.position.x + offset.x,
-        y: townCenter.position.y + offset.y
+        x: anchor.x + offset.x,
+        y: anchor.y + offset.y
       };
 
       if (!this.options.canPlaceBuilding(definition, position)) {
