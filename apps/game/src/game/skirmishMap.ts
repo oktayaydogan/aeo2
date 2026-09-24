@@ -20,7 +20,7 @@ export interface SkirmishSetup {
   enemy: SkirmishStart;
 }
 
-const DEFAULT_SIZE = 20;
+const DEFAULT_SIZE = 48;
 
 export function createSkirmishSetup(
   seed: number,
@@ -346,12 +346,12 @@ function normalizeSize(size: number): number {
 
   const normalized = Math.trunc(size);
 
-  if (normalized < 16) {
-    return 16;
+  if (normalized < 32) {
+    return 32;
   }
 
-  if (normalized > 40) {
-    return 40;
+  if (normalized > 64) {
+    return 64;
   }
 
   return normalized;
