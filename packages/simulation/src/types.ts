@@ -85,6 +85,7 @@ export interface DropOffPointState {
   id: string;
   ownerId: string;
   position: Vector2;
+  buildingId?: string;
   accepts?: readonly ResourceKind[];
 }
 

@@ -132,13 +132,6 @@ export class Simulation {
       }
     );
     this.movementSystem = new MovementSystem(this.tickRate, this.navigation);
-    this.economySystem = new EconomySystem(
-      this.tickRate,
-      this.resources,
-      this.dropOffPoints,
-      (playerId) => this.ensureStockpile(playerId),
-      (unit, target) => this.movementSystem.assignPath(unit, target)
-    );
     this.constructionSystem = new ConstructionSystem(
       this.tickRate,
       this.navigation,
@@ -147,6 +140,14 @@ export class Simulation {
       this.resources,
       this.units,
       (unit, target) => this.movementSystem.assignPath(unit, target)
+    );
+    this.economySystem = new EconomySystem(
+      this.tickRate,
+      this.resources,
+      this.dropOffPoints,
+      (playerId) => this.ensureStockpile(playerId),
+      (unit, target) => this.movementSystem.assignPath(unit, target),
+      (unit, point) => this.resolveDropOffTarget(unit, point)
     );
 
     for (const definition of options.buildingDefinitions ?? []) {
@@ -759,6 +760,44 @@ export class Simulation {
     }
   }
 
+  private resolveDropOffTarget(
+    unit: RuntimeUnit,
+    dropOffPoint: DropOffPointState
+  ): Vector2 | null {
+    if (dropOffPoint.buildingId) {
+      const building = this.buildings.get(dropOffPoint.buildingId);
+      const definition = building
+        ? this.buildingDefinitions.get(building.kind)
+        : undefined;
+
+      if (
+        building &&
+        definition &&
+        building.ownerId === dropOffPoint.ownerId &&
+        building.completed
+      ) {
+        return this.constructionSystem.findBuildApproachPosition(
+          unit,
+          definition,
+          building.position
+        );
+      }
+    }
+
+    const resolved = this.navigation.resolveTarget(dropOffPoint.position);
+
+    if (!resolved) {
+      return null;
+    }
+
+    return (
+      distance(unit.position, resolved) <= ARRIVAL_EPSILON ||
+      this.navigation.findPath(unit.position, resolved).length > 0
+    )
+      ? resolved
+      : null;
+  }
+
   private spawnProducedUnit(
     building: BuildingState,
     definition: UnitDefinition,
@@ -1217,6 +1256,7 @@ function cloneDropOffPoint(
     id: dropOffPoint.id,
     ownerId: dropOffPoint.ownerId,
     position: { ...dropOffPoint.position },
+    buildingId: dropOffPoint.buildingId,
     accepts: dropOffPoint.accepts ? [...dropOffPoint.accepts] : undefined
   };
 }

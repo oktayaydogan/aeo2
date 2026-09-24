@@ -21,6 +21,7 @@ export interface GatherTask {
   resourceId: string;
   phase: GatherPhase;
   dropOffPointId?: string;
+  dropOffTarget?: Vector2;
 }
 
 export interface EconomyUnit extends UnitState {
@@ -34,7 +35,11 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     private readonly resources: Map<string, ResourceNodeState>,
     private readonly dropOffPoints: Map<string, DropOffPointState>,
     private readonly ensureStockpile: (playerId: string) => ResourceStockpile,
-    private readonly assignPath: (unit: TUnit, target: Vector2) => boolean
+    private readonly assignPath: (unit: TUnit, target: Vector2) => boolean,
+    private readonly resolveDropOffTarget: (
+      unit: TUnit,
+      point: DropOffPointState
+    ) => Vector2 | null = (_unit, point) => ({ ...point.position })
   ) {}
 
   step(units: Iterable<TUnit>): void {
@@ -71,6 +76,7 @@ export class EconomySystem<TUnit extends EconomyUnit> {
 
     task.phase = "to-resource";
     task.dropOffPointId = undefined;
+    task.dropOffTarget = undefined;
     unit.activity = "moving";
 
     if (distance(unit.position, resource.position) <= GATHER_RANGE) {
@@ -94,28 +100,25 @@ export class EconomySystem<TUnit extends EconomyUnit> {
       return;
     }
 
-    const dropOffPoint = this.findNearestDropOffPoint(
-      unit.ownerId,
-      unit.position,
-      resourceKind
-    );
+    const dropOff = this.findNearestDropOffTarget(unit, resourceKind);
 
-    if (!dropOffPoint) {
+    if (!dropOff) {
       this.stopGatherTask(unit);
       return;
     }
 
     task.phase = "to-dropoff";
-    task.dropOffPointId = dropOffPoint.id;
+    task.dropOffPointId = dropOff.point.id;
+    task.dropOffTarget = { ...dropOff.target };
     unit.activity = "returning";
 
-    if (distance(unit.position, dropOffPoint.position) <= DROP_OFF_RANGE) {
+    if (distance(unit.position, dropOff.target) <= DROP_OFF_RANGE) {
       unit.waypoints = [];
       unit.destination = null;
       return;
     }
 
-    if (!this.assignPath(unit, dropOffPoint.position)) {
+    if (!this.assignPath(unit, dropOff.target)) {
       this.stopGatherTask(unit);
     }
   }
@@ -230,9 +233,22 @@ export class EconomySystem<TUnit extends EconomyUnit> {
       return;
     }
 
-    if (distance(unit.position, dropOffPoint.position) > DROP_OFF_RANGE) {
-      if (unit.waypoints.length === 0) {
-        this.assignPath(unit, dropOffPoint.position);
+    const dropOffTarget =
+      task.dropOffTarget ?? this.resolveDropOffTarget(unit, dropOffPoint);
+
+    if (!dropOffTarget) {
+      this.beginReturnToDropOff(unit, resource.kind);
+      return;
+    }
+
+    task.dropOffTarget = { ...dropOffTarget };
+
+    if (distance(unit.position, dropOffTarget) > DROP_OFF_RANGE) {
+      if (
+        unit.waypoints.length === 0 &&
+        !this.assignPath(unit, dropOffTarget)
+      ) {
+        this.beginReturnToDropOff(unit, resource.kind);
       }
       return;
     }
@@ -244,6 +260,7 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     }
 
     task.dropOffPointId = undefined;
+    task.dropOffTarget = undefined;
 
     if (resource.amount > ARRIVAL_EPSILON) {
       task.phase = "to-resource";
@@ -253,21 +270,31 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     }
   }
 
-  private findNearestDropOffPoint(
-    ownerId: string,
-    position: Vector2,
+  private findNearestDropOffTarget(
+    unit: TUnit,
     resourceKind: ResourceKind
-  ): DropOffPointState | undefined {
+  ): { point: DropOffPointState; target: Vector2 } | undefined {
     return [...this.dropOffPoints.values()]
       .filter(
         (point) =>
-          point.ownerId === ownerId &&
+          point.ownerId === unit.ownerId &&
           (!point.accepts || point.accepts.includes(resourceKind))
+      )
+      .map((point) => ({
+        point,
+        target: this.resolveDropOffTarget(unit, point)
+      }))
+      .filter(
+        (
+          entry
+        ): entry is { point: DropOffPointState; target: Vector2 } =>
+          entry.target !== null
       )
       .sort(
         (a, b) =>
-          distance(position, a.position) - distance(position, b.position) ||
-          a.id.localeCompare(b.id)
+          distance(unit.position, a.target) -
+            distance(unit.position, b.target) ||
+          a.point.id.localeCompare(b.point.id)
       )[0];
   }
 }

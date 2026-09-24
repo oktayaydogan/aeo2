@@ -182,6 +182,7 @@ export class WorldScene extends Phaser.Scene {
       {
         id: "town-center-dropoff",
         ownerId: "player-1",
+        buildingId: "town-center-1",
         position: BENCHMARK_MODE
           ? { x: 1.5, y: 10 }
           : { ...SKIRMISH_SETUP.player.dropOff }
@@ -189,6 +190,7 @@ export class WorldScene extends Phaser.Scene {
       {
         id: "enemy-town-center-dropoff",
         ownerId: "player-2",
+        buildingId: "enemy-town-center",
         position: BENCHMARK_MODE
           ? { x: 13.5, y: 4 }
           : { ...SKIRMISH_SETUP.enemy.dropOff }

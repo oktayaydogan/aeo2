@@ -308,33 +308,12 @@ function createHouseTexture(scene: Phaser.Scene): void {
   if (scene.textures.exists("building-house")) return;
 
   const g = graphics(scene);
-  drawBuildingShadow(g, 32, 51, 52);
+  drawIsoBuildingShadow(g, 40, 62, 58);
+  drawIsoPrism(g, 40, 20, 30, 15, 27, 0xb5905f, 0x8b6846, 0x725139);
+  drawIsoRoof(g, 40, 7, 34, 17, 16, 0x8d5846, 0x71463a);
+  drawIsoDoor(g, 40, 47, 9, 13);
 
-  g.fillStyle(OUTLINE, 1);
-  g.fillRect(9, 22, 46, 30);
-  g.fillStyle(0x9b774d, 1);
-  g.fillRect(11, 23, 42, 28);
-  g.fillStyle(0xb5905f, 0.45);
-  for (let y = 27; y <= 47; y += 6) {
-    g.fillRect(13, y, 38, 1);
-  }
-
-  g.fillStyle(OUTLINE, 1);
-  g.fillTriangle(3, 24, 32, 3, 61, 24);
-  g.fillStyle(0x71463a, 1);
-  g.fillTriangle(6, 23, 32, 6, 58, 23);
-  g.fillStyle(0x8d5846, 0.7);
-  g.fillTriangle(14, 19, 32, 8, 32, 19);
-
-  drawDoor(g, 26, 35, 12, 17);
-  drawWindow(g, 15, 33, 8, 8);
-
-  g.fillStyle(0x5e4530, 1);
-  g.fillRect(47, 12, 5, 10);
-  g.fillStyle(0x8c6d52, 1);
-  g.fillRect(48, 13, 3, 9);
-
-  g.generateTexture("building-house", 64, 58);
+  g.generateTexture("building-house", 80, 68);
   g.destroy();
 }
 
@@ -342,33 +321,19 @@ function createBarracksTexture(scene: Phaser.Scene): void {
   if (scene.textures.exists("building-barracks")) return;
 
   const g = graphics(scene);
-  drawBuildingShadow(g, 40, 57, 70);
-
-  g.fillStyle(OUTLINE, 1);
-  g.fillRect(6, 20, 68, 38);
-  g.fillStyle(0x74554d, 1);
-  g.fillRect(8, 21, 64, 36);
-  g.fillStyle(0x946f62, 0.5);
-  g.fillRect(11, 25, 58, 3);
-  g.fillRect(11, 35, 58, 2);
-
-  g.fillStyle(OUTLINE, 1);
-  g.fillTriangle(2, 22, 40, 2, 78, 22);
-  g.fillStyle(0x4e3934, 1);
-  g.fillTriangle(5, 21, 40, 5, 75, 21);
-  g.fillStyle(0x694b43, 0.7);
-  g.fillTriangle(12, 18, 40, 7, 40, 18);
-
-  drawDoor(g, 33, 38, 14, 20);
-  drawWindow(g, 14, 31, 10, 9);
-  drawWindow(g, 56, 31, 10, 9);
+  drawIsoBuildingShadow(g, 48, 72, 76);
+  drawIsoPrism(g, 48, 24, 38, 19, 31, 0x946f62, 0x74554d, 0x5c403b);
+  drawIsoRoof(g, 48, 7, 42, 21, 18, 0x694b43, 0x4e3934);
+  drawIsoDoor(g, 48, 55, 11, 16);
+  drawIsoWindow(g, 28, 49, 7, 6);
+  drawIsoWindow(g, 68, 49, 7, 6);
 
   g.lineStyle(3, OUTLINE, 1);
-  g.lineBetween(17, 55, 17, 18);
+  g.lineBetween(18, 58, 18, 25);
   g.lineStyle(1, 0xa1845d, 1);
-  g.lineBetween(17, 54, 17, 19);
+  g.lineBetween(18, 57, 18, 26);
 
-  g.generateTexture("building-barracks", 80, 62);
+  g.generateTexture("building-barracks", 96, 78);
   g.destroy();
 }
 
@@ -376,39 +341,17 @@ function createTownCenterTexture(scene: Phaser.Scene): void {
   if (scene.textures.exists("building-town-center")) return;
 
   const g = graphics(scene);
-  drawBuildingShadow(g, 48, 69, 88);
+  drawIsoBuildingShadow(g, 56, 88, 96);
+  drawIsoPrism(g, 56, 30, 48, 24, 38, 0x9c8254, 0x856b45, 0x6c5338);
+  drawIsoRoof(g, 56, 8, 52, 26, 24, 0x7d5446, 0x62443a);
+  drawIsoDoor(g, 56, 67, 13, 19);
+  drawIsoWindow(g, 30, 58, 10, 8);
+  drawIsoWindow(g, 82, 58, 10, 8);
 
-  g.fillStyle(OUTLINE, 1);
-  g.fillRect(6, 22, 84, 49);
-  g.fillStyle(0x856b45, 1);
-  g.fillRect(8, 23, 80, 47);
+  drawIsoTower(g, 23, 20);
+  drawIsoTower(g, 89, 20);
 
-  g.fillStyle(0x9c8254, 0.55);
-  for (let y = 28; y <= 63; y += 8) {
-    g.fillRect(12, y, 72, 2);
-  }
-
-  g.fillStyle(OUTLINE, 1);
-  g.fillTriangle(1, 25, 48, 2, 95, 25);
-  g.fillStyle(0x62443a, 1);
-  g.fillTriangle(4, 24, 48, 5, 92, 24);
-  g.fillStyle(0x7d5446, 0.75);
-  g.fillTriangle(13, 20, 48, 7, 48, 20);
-
-  drawDoor(g, 40, 46, 16, 25);
-  drawWindow(g, 17, 34, 15, 13);
-  drawWindow(g, 64, 34, 15, 13);
-
-  g.fillStyle(OUTLINE, 1);
-  g.fillRect(13, 12, 10, 13);
-  g.fillStyle(0x98764e, 1);
-  g.fillRect(15, 13, 6, 12);
-  g.fillStyle(OUTLINE, 1);
-  g.fillRect(73, 12, 10, 13);
-  g.fillStyle(0x98764e, 1);
-  g.fillRect(75, 13, 6, 12);
-
-  g.generateTexture("building-town-center", 96, 74);
+  g.generateTexture("building-town-center", 112, 94);
   g.destroy();
 }
 
@@ -416,48 +359,146 @@ function createArcheryRangeTexture(scene: Phaser.Scene): void {
   if (scene.textures.exists("building-archery-range")) return;
 
   const g = graphics(scene);
-  drawBuildingShadow(g, 40, 57, 70);
-
-  g.fillStyle(OUTLINE, 1);
-  g.fillRect(6, 22, 68, 36);
-  g.fillStyle(0x657154, 1);
-  g.fillRect(8, 23, 64, 34);
-  g.fillStyle(0x80906b, 0.45);
-  g.fillRect(11, 28, 58, 2);
-  g.fillRect(11, 39, 58, 2);
-
-  g.fillStyle(OUTLINE, 1);
-  g.fillTriangle(2, 24, 40, 3, 78, 24);
-  g.fillStyle(0x46543e, 1);
-  g.fillTriangle(5, 23, 40, 6, 75, 23);
-
-  drawWindow(g, 14, 32, 11, 9);
-  drawWindow(g, 55, 32, 11, 9);
-  drawDoor(g, 34, 39, 12, 19);
+  drawIsoBuildingShadow(g, 48, 72, 76);
+  drawIsoPrism(g, 48, 25, 38, 19, 30, 0x80906b, 0x657154, 0x4d5a45);
+  drawIsoRoof(g, 48, 9, 42, 21, 17, 0x607356, 0x46543e);
+  drawIsoDoor(g, 48, 55, 10, 15);
+  drawIsoWindow(g, 28, 49, 8, 6);
+  drawIsoWindow(g, 68, 49, 8, 6);
 
   g.lineStyle(3, OUTLINE, 1);
   g.beginPath();
-  g.arc(63, 49, 10, -1.2, 1.2, false);
+  g.arc(73, 57, 9, -1.2, 1.2, false);
   g.strokePath();
   g.lineStyle(2, 0xa26f3e, 1);
   g.beginPath();
-  g.arc(63, 49, 8, -1.2, 1.2, false);
+  g.arc(73, 57, 7, -1.2, 1.2, false);
   g.strokePath();
   g.lineStyle(1, 0xdfd0ae, 1);
-  g.lineBetween(60, 41, 66, 57);
+  g.lineBetween(70, 50, 76, 64);
 
-  g.generateTexture("building-archery-range", 80, 62);
+  g.generateTexture("building-archery-range", 96, 78);
   g.destroy();
 }
 
-function drawBuildingShadow(
+function drawIsoPrism(
+  g: Phaser.GameObjects.Graphics,
+  cx: number,
+  topY: number,
+  halfWidth: number,
+  halfDepth: number,
+  height: number,
+  topColor: number,
+  leftColor: number,
+  rightColor: number
+): void {
+  const top = { x: cx, y: topY };
+  const right = { x: cx + halfWidth, y: topY + halfDepth };
+  const bottom = { x: cx, y: topY + halfDepth * 2 };
+  const left = { x: cx - halfWidth, y: topY + halfDepth };
+  const leftDown = { x: left.x, y: left.y + height };
+  const bottomDown = { x: bottom.x, y: bottom.y + height };
+  const rightDown = { x: right.x, y: right.y + height };
+
+  g.fillStyle(leftColor, 1);
+  g.fillTriangle(left.x, left.y, bottom.x, bottom.y, leftDown.x, leftDown.y);
+  g.fillTriangle(bottom.x, bottom.y, bottomDown.x, bottomDown.y, leftDown.x, leftDown.y);
+
+  g.fillStyle(rightColor, 1);
+  g.fillTriangle(bottom.x, bottom.y, right.x, right.y, bottomDown.x, bottomDown.y);
+  g.fillTriangle(right.x, right.y, rightDown.x, rightDown.y, bottomDown.x, bottomDown.y);
+
+  g.fillStyle(topColor, 1);
+  g.fillTriangle(top.x, top.y, right.x, right.y, bottom.x, bottom.y);
+  g.fillTriangle(top.x, top.y, bottom.x, bottom.y, left.x, left.y);
+
+  g.lineStyle(2, OUTLINE, 1);
+  g.lineBetween(top.x, top.y, right.x, right.y);
+  g.lineBetween(right.x, right.y, bottom.x, bottom.y);
+  g.lineBetween(bottom.x, bottom.y, left.x, left.y);
+  g.lineBetween(left.x, left.y, top.x, top.y);
+  g.lineBetween(left.x, left.y, leftDown.x, leftDown.y);
+  g.lineBetween(bottom.x, bottom.y, bottomDown.x, bottomDown.y);
+  g.lineBetween(right.x, right.y, rightDown.x, rightDown.y);
+  g.lineBetween(leftDown.x, leftDown.y, bottomDown.x, bottomDown.y);
+  g.lineBetween(bottomDown.x, bottomDown.y, rightDown.x, rightDown.y);
+}
+
+function drawIsoRoof(
+  g: Phaser.GameObjects.Graphics,
+  cx: number,
+  topY: number,
+  halfWidth: number,
+  halfDepth: number,
+  ridgeHeight: number,
+  nearColor: number,
+  farColor: number
+): void {
+  const ridge = { x: cx, y: topY };
+  const left = { x: cx - halfWidth, y: topY + halfDepth + ridgeHeight };
+  const right = { x: cx + halfWidth, y: topY + halfDepth + ridgeHeight };
+  const near = { x: cx, y: topY + halfDepth * 2 + ridgeHeight };
+
+  g.fillStyle(farColor, 1);
+  g.fillTriangle(ridge.x, ridge.y, right.x, right.y, near.x, near.y);
+  g.fillStyle(nearColor, 1);
+  g.fillTriangle(ridge.x, ridge.y, near.x, near.y, left.x, left.y);
+
+  g.lineStyle(2, OUTLINE, 1);
+  g.lineBetween(ridge.x, ridge.y, left.x, left.y);
+  g.lineBetween(ridge.x, ridge.y, right.x, right.y);
+  g.lineBetween(left.x, left.y, near.x, near.y);
+  g.lineBetween(near.x, near.y, right.x, right.y);
+}
+
+function drawIsoDoor(
+  g: Phaser.GameObjects.Graphics,
+  cx: number,
+  y: number,
+  width: number,
+  height: number
+): void {
+  g.fillStyle(OUTLINE, 1);
+  g.fillRect(cx - width / 2 - 1, y - 1, width + 2, height + 2);
+  g.fillStyle(0x392920, 1);
+  g.fillRect(cx - width / 2, y, width, height);
+  g.fillStyle(0x6c4d35, 0.6);
+  g.fillRect(cx - width / 2 + 2, y + 2, 2, height - 4);
+  g.fillStyle(0xc9a45e, 1);
+  g.fillCircle(cx + width / 2 - 3, y + height / 2, 1);
+}
+
+function drawIsoWindow(
+  g: Phaser.GameObjects.Graphics,
+  cx: number,
+  y: number,
+  width: number,
+  height: number
+): void {
+  g.fillStyle(OUTLINE, 1);
+  g.fillRect(cx - width / 2 - 1, y - 1, width + 2, height + 2);
+  g.fillStyle(0x62757a, 1);
+  g.fillRect(cx - width / 2, y, width, height);
+  g.lineStyle(1, 0xc7b782, 0.8);
+  g.lineBetween(cx, y, cx, y + height);
+}
+
+function drawIsoTower(
+  g: Phaser.GameObjects.Graphics,
+  cx: number,
+  topY: number
+): void {
+  drawIsoPrism(g, cx, topY, 8, 4, 15, 0xaa875b, 0x806143, 0x674a37);
+}
+
+function drawIsoBuildingShadow(
   g: Phaser.GameObjects.Graphics,
   x: number,
   y: number,
   width: number
 ): void {
   g.fillStyle(SHADOW, 0.33);
-  g.fillEllipse(x, y, width, 11);
+  g.fillEllipse(x, y, width, 12);
 }
 
 function drawDoor(
