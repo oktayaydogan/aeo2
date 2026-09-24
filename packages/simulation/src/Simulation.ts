@@ -148,7 +148,8 @@ export class Simulation {
       (playerId) => this.ensureStockpile(playerId),
       (unit, target) => this.movementSystem.assignPath(unit, target),
       (unit, point) => this.resolveDropOffTarget(unit, point),
-      (unit, resource) => this.resolveResourceTarget(unit, resource),
+      (unit, resource, reservedTargets) =>
+        this.resolveResourceTarget(unit, resource, reservedTargets),
       (resource) => this.releaseResourceObstacle(resource)
     );
 
@@ -504,7 +505,9 @@ export class Simulation {
       villagers.forEach((unit) => this.clearQueuedOrders(unit));
     }
 
-    for (const unit of villagers) {
+    const reservedGatherTargets: Vector2[] = [];
+
+    for (const unit of [...villagers].sort((a, b) => a.id.localeCompare(b.id))) {
       unit.buildTask = undefined;
       unit.attackTask = undefined;
       unit.gatherTask = {
@@ -521,7 +524,15 @@ export class Simulation {
         continue;
       }
 
-      this.economySystem.routeVillagerToResource(unit, resource);
+      this.economySystem.routeVillagerToResource(
+        unit,
+        resource,
+        reservedGatherTargets
+      );
+
+      if (unit.gatherTask?.gatherTarget) {
+        reservedGatherTargets.push({ ...unit.gatherTask.gatherTarget });
+      }
     }
   }
 
@@ -821,7 +832,8 @@ export class Simulation {
 
   private resolveResourceTarget(
     unit: RuntimeUnit,
-    resource: ResourceNodeState
+    resource: ResourceNodeState,
+    reservedTargets: readonly Vector2[] = []
   ): Vector2 | null {
     if (!resource.blocksMovement) {
       const resolved = this.navigation.resolveTarget(resource.position);
@@ -850,20 +862,27 @@ export class Simulation {
       { x: cell.x + 1.5, y: cell.y + 1.5 }
     ];
 
-    return (
-      candidates
-        .filter((candidate) => this.navigation.isWalkablePoint(candidate))
-        .sort(
-          (a, b) =>
-            distance(unit.position, a) - distance(unit.position, b) ||
-            a.y - b.y ||
-            a.x - b.x
+    const ordered = candidates
+      .filter((candidate) => this.navigation.isWalkablePoint(candidate))
+      .sort(
+        (a, b) =>
+          distance(unit.position, a) - distance(unit.position, b) ||
+          a.y - b.y ||
+          a.x - b.x
+      );
+    const unreserved = ordered.filter(
+      (candidate) =>
+        !reservedTargets.some(
+          (reserved) => distance(candidate, reserved) <= ARRIVAL_EPSILON
         )
-        .find(
-          (candidate) =>
-            distance(unit.position, candidate) <= ARRIVAL_EPSILON ||
-            this.navigation.findPath(unit.position, candidate).length > 0
-        ) ?? null
+    );
+
+    return (
+      [...unreserved, ...ordered].find(
+        (candidate) =>
+          distance(unit.position, candidate) <= ARRIVAL_EPSILON ||
+          this.navigation.findPath(unit.position, candidate).length > 0
+      ) ?? null
     );
   }
 
