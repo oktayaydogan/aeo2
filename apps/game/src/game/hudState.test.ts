@@ -63,6 +63,38 @@ describe("getHudCommandAvailability", () => {
 });
 
 
+describe("Economic drop-off HUD commands", () => {
+  it("enables each economic building at its wood threshold", () => {
+    const state = getHudCommandAvailability({
+      selectedUnitKinds: ["villager"],
+      resources: { wood: 90, food: 0, gold: 0 },
+      populationUsed: 1,
+      populationQueued: 0,
+      populationCap: 10,
+      matchEnded: false
+    });
+
+    expect(state["wood-depot"]).toBe(true);
+    expect(state.granary).toBe(true);
+    expect(state["ore-yard"]).toBe(true);
+  });
+
+  it("keeps economic construction unavailable without a villager", () => {
+    const state = getHudCommandAvailability({
+      selectedUnitKinds: [],
+      resources: { wood: 500, food: 0, gold: 0 },
+      populationUsed: 0,
+      populationQueued: 0,
+      populationCap: 10,
+      matchEnded: false
+    });
+
+    expect(state["wood-depot"]).toBe(false);
+    expect(state.granary).toBe(false);
+    expect(state["ore-yard"]).toBe(false);
+  });
+});
+
 describe("Phase 2 HUD commands", () => {
   it("enables Archery Range construction for a villager with enough wood", () => {
     const state = getHudCommandAvailability({
