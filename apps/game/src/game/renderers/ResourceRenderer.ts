@@ -38,37 +38,27 @@ export class ResourceRenderer {
       const label = this.labels.get(resource.id);
       const visibility = visibilityAt(resource);
       const discovered = visibility !== "unexplored";
+      const available = resource.amount > 0;
+      const visible = discovered && available;
 
-      view?.setVisible(discovered);
+      view?.setVisible(visible);
       label?.setVisible(
-        discovered && this.hoveredResourceId === resource.id
+        visible && this.hoveredResourceId === resource.id
       );
 
       if (view) {
-        if (discovered) {
+        if (visible) {
           view.setInteractive({ useHandCursor: true });
         } else {
           view.disableInteractive();
         }
 
-        view.setAlpha(
-          resource.amount <= 0
-            ? 0.2
-            : visibility === "explored"
-              ? 0.5
-              : 1
-        );
+        view.setAlpha(visibility === "explored" ? 0.5 : 1);
       }
 
       if (label) {
         label.setText(resourceLabel(resource));
-        label.setAlpha(
-          resource.amount <= 0
-            ? 0.45
-            : visibility === "explored"
-              ? 0.5
-              : 1
-        );
+        label.setAlpha(visibility === "explored" ? 0.5 : 1);
       }
     }
   }

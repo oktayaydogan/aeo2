@@ -18,7 +18,7 @@ describe("createSkirmishSetup", () => {
   it("keeps mirrored starting resources equally distant from both Town Centers", () => {
     const setup = createSkirmishSetup(20260920);
 
-    for (const kind of ["wood", "food", "gold"] as const) {
+    for (const kind of ["food", "gold"] as const) {
       const playerResource = setup.resources.find(
         (resource) =>
           resource.id === `player-${kind}`
@@ -110,6 +110,27 @@ describe("createSkirmishSetup", () => {
     }
   });
 
+  it("represents every forest cell as a harvestable blocking tree", () => {
+    const setup = createSkirmishSetup(20260920, 48);
+    const trees = setup.resources.filter(
+      (resource) => resource.kind === "wood" && resource.blocksMovement
+    );
+    const blocked = new Set(
+      (setup.map.blocked ?? []).map((cell) => `${cell.x},${cell.y}`)
+    );
+
+    expect(trees).toHaveLength(setup.forestCells.length);
+
+    for (const tree of trees) {
+      expect(tree.amount).toBeGreaterThan(0);
+      expect(
+        blocked.has(
+          `${Math.floor(tree.position.x)},${Math.floor(tree.position.y)}`
+        )
+      ).toBe(false);
+    }
+  });
+
   it("adds safe, secondary, and neutral resource zones", () => {
     const setup = createSkirmishSetup(20260920, 48);
     const ids = new Set(setup.resources.map((resource) => resource.id));
@@ -149,6 +170,7 @@ describe("createSkirmishSetup", () => {
     for (const seed of [1, 2, 42, 1337, 7331, 20260920]) {
       const setup = createSkirmishSetup(seed);
       const navigation = new GridNavigation(setup.map);
+      navigation.blockCells(setup.forestCells);
 
       const path = navigation.findPath(
         {
