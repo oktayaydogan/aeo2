@@ -46,7 +46,8 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     ) => Vector2 | null = (_unit, point) => ({ ...point.position }),
     private readonly resolveResourceTarget: (
       unit: TUnit,
-      resource: ResourceNodeState
+      resource: ResourceNodeState,
+      reservedTargets?: readonly Vector2[]
     ) => Vector2 | null = (_unit, resource) => ({ ...resource.position }),
     private readonly onResourceDepleted: (
       resource: ResourceNodeState
@@ -78,14 +79,22 @@ export class EconomySystem<TUnit extends EconomyUnit> {
     }
   }
 
-  routeVillagerToResource(unit: TUnit, resource: ResourceNodeState): void {
+  routeVillagerToResource(
+    unit: TUnit,
+    resource: ResourceNodeState,
+    reservedTargets: readonly Vector2[] = []
+  ): void {
     const task = unit.gatherTask;
 
     if (!task) {
       return;
     }
 
-    const gatherTarget = this.resolveResourceTarget(unit, resource);
+    const gatherTarget = this.resolveResourceTarget(
+      unit,
+      resource,
+      reservedTargets
+    );
 
     if (!gatherTarget) {
       this.stopGatherTask(unit);
