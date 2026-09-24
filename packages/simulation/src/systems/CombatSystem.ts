@@ -309,7 +309,8 @@ export class CombatSystem<TUnit extends CombatUnit> {
     target.hitPoints -= this.attackDamageFor(
       unit,
       definition,
-      this.unitDefinitions.get(target.kind)
+      this.unitDefinitions.get(target.kind),
+      target.position
     );
     unit.attackCooldownTicks = Math.max(
       1,
@@ -377,7 +378,8 @@ export class CombatSystem<TUnit extends CombatUnit> {
     building.hitPoints -= this.attackDamageFor(
       unit,
       definition,
-      buildingDefinition
+      buildingDefinition,
+      buildingCenter(building, buildingDefinition)
     );
     unit.attackCooldownTicks = Math.max(
       1,
@@ -540,9 +542,10 @@ export class CombatSystem<TUnit extends CombatUnit> {
   private attackDamageFor(
     unit: TUnit,
     definition: UnitDefinition,
-    targetDefinition?: UnitDefinition | BuildingDefinition
+    targetDefinition: UnitDefinition | BuildingDefinition | undefined,
+    targetPosition: Vector2
   ): number {
-    return resolveCombatDamage({
+    const baseDamage = resolveCombatDamage({
       baseDamage: definition.attackDamage,
       attackUpgradeBonus: this.getAttackDamageBonus(unit.ownerId),
       bonuses: definition.bonuses,
@@ -555,6 +558,16 @@ export class CombatSystem<TUnit extends CombatUnit> {
         armor: targetDefinition?.armor
       }
     }).damage;
+    const attackerElevation = this.navigation.elevationAt(unit.position);
+    const targetElevation = this.navigation.elevationAt(targetPosition);
+    const terrainMultiplier =
+      attackerElevation > targetElevation
+        ? 1.12
+        : attackerElevation < targetElevation
+          ? 0.92
+          : 1;
+
+    return Math.max(1, Math.round(baseDamage * terrainMultiplier));
   }
 }
 
@@ -574,6 +587,16 @@ function buildingFootprintCells(
   }
 
   return cells;
+}
+
+function buildingCenter(
+  building: BuildingState,
+  definition: BuildingDefinition
+): Vector2 {
+  return {
+    x: building.position.x + definition.footprint.width / 2,
+    y: building.position.y + definition.footprint.height / 2
+  };
 }
 
 function distanceToBuilding(

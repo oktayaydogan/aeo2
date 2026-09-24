@@ -21,10 +21,15 @@ export interface GridCell {
   y: number;
 }
 
+export interface GridElevationCell extends GridCell {
+  level: number;
+}
+
 export interface GridMapDefinition {
   width: number;
   height: number;
   blocked?: readonly GridCell[];
+  elevation?: readonly GridElevationCell[];
 }
 
 export type ResourceKind = "wood" | "food" | "gold";

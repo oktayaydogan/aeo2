@@ -117,6 +117,11 @@ const ACTIVE_BLOCKED_CELL_KEYS = new Set(
     (cell) => `${cell.x},${cell.y}`
   )
 );
+const ACTIVE_ELEVATION_BY_CELL = new Map(
+  (ACTIVE_MAP.elevation ?? []).map(
+    (cell) => [`${cell.x},${cell.y}`, cell.level] as const
+  )
+);
 
 
 export class WorldScene extends Phaser.Scene {
@@ -460,11 +465,13 @@ export class WorldScene extends Phaser.Scene {
         const left = gridToScreen({ x, y: y + 1 }, this.projection);
         const key = `${x},${y}`;
         const blocked = ACTIVE_BLOCKED_CELL_KEYS.has(key);
+        const elevation = ACTIVE_ELEVATION_BY_CELL.get(key) ?? 0;
         const visual = terrainCellVisual(
           x,
           y,
           SKIRMISH_SEED,
-          blocked
+          blocked,
+          elevation
         );
 
         graphics.fillStyle(visual.fill, 1);

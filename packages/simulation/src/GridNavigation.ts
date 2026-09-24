@@ -25,6 +25,7 @@ export class GridNavigation {
 
   private readonly blocked = new Set<string>();
   private readonly dynamicBlocked = new Set<string>();
+  private readonly elevation = new Map<string, number>();
 
   constructor(definition: GridMapDefinition) {
     if (!Number.isInteger(definition.width) || definition.width <= 0) {
@@ -45,6 +46,36 @@ export class GridNavigation {
 
       this.blocked.add(cellKey(cell.x, cell.y));
     }
+
+    for (const cell of definition.elevation ?? []) {
+      if (
+        !this.isInside(cell.x, cell.y) ||
+        !Number.isInteger(cell.level) ||
+        cell.level < 0
+      ) {
+        throw new Error(
+          `Invalid elevation cell: ${cell.x},${cell.y},${cell.level}`
+        );
+      }
+
+      if (cell.level > 0) {
+        this.elevation.set(cellKey(cell.x, cell.y), cell.level);
+      }
+    }
+  }
+
+  elevationAt(point: Vector2): number {
+    if (
+      point.x < 0 ||
+      point.y < 0 ||
+      point.x >= this.width ||
+      point.y >= this.height
+    ) {
+      return 0;
+    }
+
+    const cell = worldToCell(point);
+    return this.elevation.get(cellKey(cell.x, cell.y)) ?? 0;
   }
 
   isWalkableCell(x: number, y: number): boolean {

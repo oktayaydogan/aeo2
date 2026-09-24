@@ -1,5 +1,6 @@
 import type {
   GridCell,
+  GridElevationCell,
   GridMapDefinition,
   ResourceNodeState,
   Vector2
@@ -130,13 +131,24 @@ export function createSkirmishSetup(
     ...strategicResources,
     ...createForestResources(forestCells)
   ];
+  const occupiedForElevation = new Set([
+    ...reserved,
+    ...forestKeys,
+    ...blocked.map((cell) => cellKey(cell.x, cell.y))
+  ]);
+  const elevation = createMirroredElevation(
+    random,
+    occupiedForElevation,
+    normalizedSize
+  );
 
   return {
     seed: normalizedSeed,
     map: {
       width: normalizedSize,
       height: normalizedSize,
-      blocked
+      blocked,
+      elevation
     },
     resources,
     forestCells,
@@ -370,6 +382,55 @@ function createForestResources(
     amount: 80,
     blocksMovement: true
   }));
+}
+
+function createMirroredElevation(
+  random: () => number,
+  occupied: ReadonlySet<string>,
+  size: number
+): GridElevationCell[] {
+  const elevation = new Map<string, GridElevationCell>();
+  const hillCount = Math.max(2, Math.round(size / 20));
+  const leftMinX = Math.max(8, Math.floor(size * 0.24));
+  const leftMaxX = Math.max(leftMinX + 1, Math.floor(size / 2) - 4);
+
+  for (let hill = 0; hill < hillCount; hill += 1) {
+    const centerX =
+      leftMinX +
+      Math.floor(random() * Math.max(1, leftMaxX - leftMinX + 1));
+    const centerY = 5 + Math.floor(random() * Math.max(1, size - 10));
+    const radiusX = 3 + Math.floor(random() * 3);
+    const radiusY = 3 + Math.floor(random() * 3);
+
+    for (let y = centerY - radiusY; y <= centerY + radiusY; y += 1) {
+      for (let x = centerX - radiusX; x <= centerX + radiusX; x += 1) {
+        const normalized =
+          Math.pow((x - centerX) / Math.max(1, radiusX), 2) +
+          Math.pow((y - centerY) / Math.max(1, radiusY), 2);
+
+        if (normalized > 1 || x < 1 || y < 1 || x >= size - 1 || y >= size - 1) {
+          continue;
+        }
+
+        const left = { x, y };
+        const right = { x: size - 1 - x, y };
+        const leftKey = cellKey(left.x, left.y);
+        const rightKey = cellKey(right.x, right.y);
+
+        if (occupied.has(leftKey) || occupied.has(rightKey)) {
+          continue;
+        }
+
+        const level = normalized <= 0.28 ? 2 : 1;
+        elevation.set(leftKey, { ...left, level });
+        elevation.set(rightKey, { ...right, level });
+      }
+    }
+  }
+
+  return [...elevation.values()].sort(
+    (a, b) => a.y - b.y || a.x - b.x
+  );
 }
 
 function createMirroredObstacles(

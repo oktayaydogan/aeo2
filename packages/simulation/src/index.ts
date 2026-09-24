@@ -25,6 +25,7 @@ export type {
   GameCommand,
   GatherCommand,
   GridCell,
+  GridElevationCell,
   GridMapDefinition,
   MatchState,
   MatchStatus,
