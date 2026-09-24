@@ -40,9 +40,9 @@ describe("skirmish settings", () => {
   });
 
   it("maps size presets to deterministic square map dimensions", () => {
-    expect(mapSizeFor("small")).toBe(16);
-    expect(mapSizeFor("standard")).toBe(20);
-    expect(mapSizeFor("large")).toBe(28);
+    expect(mapSizeFor("small")).toBe(32);
+    expect(mapSizeFor("standard")).toBe(48);
+    expect(mapSizeFor("large")).toBe(64);
   });
 
   it("validates seed bounds and complete settings", () => {
