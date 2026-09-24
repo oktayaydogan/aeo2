@@ -184,4 +184,107 @@ describe("EconomySystem", () => {
     expect(unit.cargo).toBeNull();
     expect(unit.gatherTask?.phase).toBe("to-resource");
   });
+
+  it("harvests a blocking resource from a perimeter target and releases it once", () => {
+    const tree: ResourceNodeState = {
+      id: "tree-1",
+      kind: "wood",
+      position: { x: 1.5, y: 1.5 },
+      amount: 0.2,
+      blocksMovement: true
+    };
+    const resources = new Map([[tree.id, tree]]);
+    const unit: EconomyUnit = {
+      id: "villager-1",
+      ownerId: "p1",
+      kind: "villager",
+      position: { x: 0.5, y: 1.5 },
+      destination: null,
+      speed: 2.4,
+      hitPoints: 25,
+      activity: "gathering",
+      cargo: null,
+      waypoints: [],
+      gatherTask: {
+        resourceId: tree.id,
+        phase: "gathering",
+        gatherTarget: { x: 0.5, y: 1.5 }
+      }
+    };
+    const depleted: string[] = [];
+    const system = new EconomySystem(
+      20,
+      resources,
+      new Map(),
+      () => ({ wood: 0, food: 0, gold: 0 }),
+      () => true,
+      undefined,
+      (_movingUnit, resource) =>
+        resource.blocksMovement ? { x: 0.5, y: 1.5 } : resource.position,
+      (resource) => depleted.push(resource.id)
+    );
+
+    system.step([unit]);
+    system.step([unit]);
+
+    expect(tree.amount).toBe(0);
+    expect(depleted).toEqual(["tree-1"]);
+  });
+
+  it("automatically advances from a depleted tree to a nearby tree", () => {
+    const first: ResourceNodeState = {
+      id: "tree-1",
+      kind: "wood",
+      position: { x: 1.5, y: 1.5 },
+      amount: 0,
+      blocksMovement: true
+    };
+    const second: ResourceNodeState = {
+      id: "tree-2",
+      kind: "wood",
+      position: { x: 2.5, y: 1.5 },
+      amount: 80,
+      blocksMovement: true
+    };
+    const resources = new Map([
+      [first.id, first],
+      [second.id, second]
+    ]);
+    const unit: EconomyUnit = {
+      id: "villager-1",
+      ownerId: "p1",
+      kind: "villager",
+      position: { x: 0.5, y: 1.5 },
+      destination: null,
+      speed: 2.4,
+      hitPoints: 25,
+      activity: "moving",
+      cargo: null,
+      waypoints: [],
+      gatherTask: {
+        resourceId: first.id,
+        phase: "to-resource"
+      }
+    };
+    const routed: { x: number; y: number }[] = [];
+    const system = new EconomySystem(
+      20,
+      resources,
+      new Map(),
+      () => ({ wood: 0, food: 0, gold: 0 }),
+      (_movingUnit, target) => {
+        routed.push({ ...target });
+        return true;
+      },
+      undefined,
+      (_movingUnit, resource) =>
+        resource.id === second.id ? { x: 1.5, y: 1.5 } : { x: 0.5, y: 1.5 }
+    );
+
+    system.step([unit]);
+
+    expect(unit.gatherTask?.resourceId).toBe("tree-2");
+    expect(unit.gatherTask?.gatherTarget).toEqual({ x: 1.5, y: 1.5 });
+    expect(routed).toEqual([{ x: 1.5, y: 1.5 }]);
+  });
 });
