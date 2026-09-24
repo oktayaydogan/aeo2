@@ -803,7 +803,12 @@ export class Simulation {
       const definition = this.buildingDefinitions.get(building.kind);
       const accepts = definition?.dropOffAccepts;
 
-      if (!building.completed || !accepts || accepts.length === 0) {
+      if (
+        !building.completed ||
+        !definition ||
+        !accepts ||
+        accepts.length === 0
+      ) {
         continue;
       }
 
