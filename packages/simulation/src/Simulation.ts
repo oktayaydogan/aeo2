@@ -543,18 +543,27 @@ export class Simulation {
       return;
     }
 
-    const buildersWithTargets = builders.map((unit) => ({
+    const buildersWithTargets: {
+      unit: RuntimeUnit;
+      target: Vector2;
+    }[] = [];
+    const reservedBuildTargets: Vector2[] = [];
+
+    for (const unit of [...builders].sort((a, b) => a.id.localeCompare(b.id))) {
+      const target = this.constructionSystem.findBuildApproachPosition(
         unit,
-        target: this.constructionSystem.findBuildApproachPosition(unit, definition, position)
-      }))
-      .filter(
-        (
-          entry
-        ): entry is {
-          unit: RuntimeUnit;
-          target: Vector2;
-        } => entry.target !== null
+        definition,
+        position,
+        reservedBuildTargets
       );
+
+      if (!target) {
+        continue;
+      }
+
+      reservedBuildTargets.push({ ...target });
+      buildersWithTargets.push({ unit, target });
+    }
 
     if (buildersWithTargets.length === 0) {
       return;
