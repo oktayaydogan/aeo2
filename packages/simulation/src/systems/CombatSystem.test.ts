@@ -366,4 +366,59 @@ describe("CombatSystem", () => {
     expect(matchState.winnerPlayerId).toBe("p1");
     expect(matchState.loserPlayerId).toBe("p2");
   });
+
+  it("applies a tactical damage advantage from higher ground", () => {
+    const attacker = createUnit("high-ground", "p1", "militia", 40, {
+      x: 1.5,
+      y: 1.5
+    });
+    const target = createUnit("low-ground", "p2", "militia", 20, {
+      x: 2.5,
+      y: 1.5
+    });
+    attacker.attackTask = { targetType: "unit", targetId: target.id };
+
+    const militia: UnitDefinition = {
+      kind: "militia",
+      displayName: "Militia",
+      cost: { wood: 0, food: 0, gold: 0 },
+      trainTimeSeconds: 1,
+      maxHitPoints: 40,
+      speed: 2,
+      attackDamage: 10,
+      attackRange: 1.1,
+      attackCooldownSeconds: 1,
+      populationCost: 1
+    };
+    const units = new Map([
+      [attacker.id, attacker],
+      [target.id, target]
+    ]);
+    const system = new CombatSystem(
+      20,
+      units,
+      new Map(),
+      new Map([[militia.kind, militia]]),
+      new Map(),
+      {
+        status: "playing",
+        winnerPlayerId: null,
+        loserPlayerId: null,
+        reason: null
+      },
+      new GridNavigation({
+        width: 10,
+        height: 10,
+        elevation: [{ x: 1, y: 1, level: 1 }]
+      }),
+      () => 0,
+      () => true,
+      () => null,
+      () => undefined
+    );
+
+    system.step();
+
+    expect(target.hitPoints).toBe(9);
+  });
 });
