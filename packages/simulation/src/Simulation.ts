@@ -147,7 +147,9 @@ export class Simulation {
       this.dropOffPoints,
       (playerId) => this.ensureStockpile(playerId),
       (unit, target) => this.movementSystem.assignPath(unit, target),
-      (unit, point) => this.resolveDropOffTarget(unit, point)
+      (unit, point) => this.resolveDropOffTarget(unit, point),
+      (unit, resource) => this.resolveResourceTarget(unit, resource),
+      (resource) => this.releaseResourceObstacle(resource)
     );
 
     for (const definition of options.buildingDefinitions ?? []) {
@@ -254,7 +256,17 @@ export class Simulation {
         throw new Error(`Resource amount must be non-negative: ${resource.id}`);
       }
 
-      this.resources.set(resource.id, cloneResource(resource));
+      const clonedResource = cloneResource(resource);
+      this.resources.set(resource.id, clonedResource);
+
+      if (
+        clonedResource.blocksMovement &&
+        clonedResource.amount > ARRIVAL_EPSILON
+      ) {
+        this.navigation.blockCells([
+          resourceCell(clonedResource)
+        ]);
+      }
     }
 
     for (const dropOffPoint of options.dropOffPoints ?? []) {
@@ -807,6 +819,62 @@ export class Simulation {
       : null;
   }
 
+  private resolveResourceTarget(
+    unit: RuntimeUnit,
+    resource: ResourceNodeState
+  ): Vector2 | null {
+    if (!resource.blocksMovement) {
+      const resolved = this.navigation.resolveTarget(resource.position);
+
+      if (!resolved) {
+        return null;
+      }
+
+      return (
+        distance(unit.position, resolved) <= ARRIVAL_EPSILON ||
+        this.navigation.findPath(unit.position, resolved).length > 0
+      )
+        ? resolved
+        : null;
+    }
+
+    const cell = resourceCell(resource);
+    const candidates: Vector2[] = [
+      { x: cell.x - 0.5, y: cell.y + 0.5 },
+      { x: cell.x + 1.5, y: cell.y + 0.5 },
+      { x: cell.x + 0.5, y: cell.y - 0.5 },
+      { x: cell.x + 0.5, y: cell.y + 1.5 },
+      { x: cell.x - 0.5, y: cell.y - 0.5 },
+      { x: cell.x + 1.5, y: cell.y - 0.5 },
+      { x: cell.x - 0.5, y: cell.y + 1.5 },
+      { x: cell.x + 1.5, y: cell.y + 1.5 }
+    ];
+
+    return (
+      candidates
+        .filter((candidate) => this.navigation.isWalkablePoint(candidate))
+        .sort(
+          (a, b) =>
+            distance(unit.position, a) - distance(unit.position, b) ||
+            a.y - b.y ||
+            a.x - b.x
+        )
+        .find(
+          (candidate) =>
+            distance(unit.position, candidate) <= ARRIVAL_EPSILON ||
+            this.navigation.findPath(unit.position, candidate).length > 0
+        ) ?? null
+    );
+  }
+
+  private releaseResourceObstacle(resource: ResourceNodeState): void {
+    if (!resource.blocksMovement) {
+      return;
+    }
+
+    this.navigation.unblockCells([resourceCell(resource)]);
+  }
+
   private spawnProducedUnit(
     building: BuildingState,
     definition: UnitDefinition,
@@ -1217,6 +1285,15 @@ function buildingCenter(
   };
 }
 
+function resourceCell(
+  resource: Pick<ResourceNodeState, "position">
+): { x: number; y: number } {
+  return {
+    x: Math.floor(resource.position.x),
+    y: Math.floor(resource.position.y)
+  };
+}
+
 function spendResources(
   stockpile: ResourceStockpile,
   cost: ResourceStockpile
@@ -1254,7 +1331,8 @@ function cloneResource(resource: ResourceNodeState): ResourceNodeState {
     id: resource.id,
     kind: resource.kind,
     position: { ...resource.position },
-    amount: resource.amount
+    amount: resource.amount,
+    blocksMovement: resource.blocksMovement
   };
 }
 
