@@ -6,21 +6,14 @@ import type {
   TechnologyKind,
   UnitKind
 } from "@aeo2/simulation";
-import { getHudCommandAvailability } from "../hudState";
+import {
+  getHudCommandAvailability,
+  type HudCommand
+} from "../hudState";
 import {
   describeBuildingWork,
   describeUnitWork
 } from "../hudWorkState";
-
-type HudCommand =
-  | "house"
-  | "barracks"
-  | "archery-range"
-  | "villager"
-  | "militia"
-  | "spearman"
-  | "archer"
-  | "forged-weapons";
 
 interface HudButton {
   background: Phaser.GameObjects.Rectangle;
@@ -116,7 +109,7 @@ export class HudAdapter {
   layout(snapshot: SimulationSnapshot): void {
     const width = this.options.scene.scale.width;
     const height = this.options.scene.scale.height;
-    const panelHeight = 118;
+    const panelHeight = 148;
 
     this.graphics.clear();
 
@@ -148,19 +141,27 @@ export class HudAdapter {
     this.graphics.lineBetween(0, height - panelHeight, width, height - panelHeight);
 
     this.objectiveText.setPosition(width / 2, 14);
-    this.selectionTitleText.setPosition(24, height - 100);
-    this.selectionDetailsText.setPosition(24, height - 70);
+    this.selectionTitleText.setPosition(24, height - 126);
+    this.selectionDetailsText.setPosition(24, height - 96);
 
     const visibleButtons = this.buttons.filter(
       (button) => button.background.visible
     );
-    const buttonStartX = Math.max(430, width - 420);
-    const firstRowY = height - 58;
+    const columns = Math.min(3, Math.max(1, visibleButtons.length));
+    const buttonGap = 136;
+    const buttonStartX = Math.max(
+      430,
+      width - (columns - 1) * buttonGap - 152
+    );
+    const firstRowY = height - 38;
 
     visibleButtons.forEach((button, index) => {
-      const x = buttonStartX + index * 136;
-      button.background.setPosition(x, firstRowY);
-      button.label.setPosition(x, firstRowY);
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const x = buttonStartX + column * buttonGap;
+      const y = firstRowY - row * 58;
+      button.background.setPosition(x, y);
+      button.label.setPosition(x, y);
     });
 
     if (snapshot.match.status === "ended") {
@@ -282,6 +283,9 @@ export class HudAdapter {
       house: "HOUSE  [H]\n25W",
       barracks: "BARRACKS  [B]\n75W",
       "archery-range": "ARCHERY RANGE  [X]\n100W",
+      "wood-depot": "WOOD DEPOT  [D]\n80W",
+      granary: "GRANARY  [G]\n75W",
+      "ore-yard": "ORE YARD  [O]\n90W",
       villager: "VILLAGER  [V]\n50F",
       militia: "MILITIA  [M]\n60F · 20G",
       spearman: "SPEARMAN  [P]\n25W · 45F",
@@ -359,6 +363,9 @@ export class HudAdapter {
       "house",
       "barracks",
       "archery-range",
+      "wood-depot",
+      "granary",
+      "ore-yard",
       "villager",
       "militia",
       "spearman",
@@ -389,7 +396,10 @@ export class HudAdapter {
         if (
           command === "house" ||
           command === "barracks" ||
-          command === "archery-range"
+          command === "archery-range" ||
+          command === "wood-depot" ||
+          command === "granary" ||
+          command === "ore-yard"
         ) {
           this.options.setPlacementMode(command);
           return;
@@ -434,6 +444,9 @@ function isCommandRelevant(
     case "house":
     case "barracks":
     case "archery-range":
+    case "wood-depot":
+    case "granary":
+    case "ore-yard":
       return hasVillager;
     case "villager":
       return selectedBuildingKind === "town-center";

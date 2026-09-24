@@ -279,6 +279,8 @@ export class Simulation {
       this.ensureStockpile(dropOffPoint.ownerId);
     }
 
+    this.syncBuildingDropOffPoints();
+
     for (const [playerId, initialStockpile] of Object.entries(
       options.stockpiles ?? {}
     )) {
@@ -361,6 +363,7 @@ export class Simulation {
     });
     this.researchSystem.step(this.buildings.values());
     this.combatSystem.step();
+    this.syncBuildingDropOffPoints();
     this.movementSystem.resolveUnitSeparation(this.units.values());
     this.advanceUnitOrderQueues();
     this.tick += 1;
@@ -792,6 +795,42 @@ export class Simulation {
     }
   }
 
+  private syncBuildingDropOffPoints(): void {
+    const managedPrefix = "building-dropoff:";
+    const liveManagedIds = new Set<string>();
+
+    for (const building of this.buildings.values()) {
+      const definition = this.buildingDefinitions.get(building.kind);
+      const accepts = definition?.dropOffAccepts;
+
+      if (
+        !building.completed ||
+        !definition ||
+        !accepts ||
+        accepts.length === 0
+      ) {
+        continue;
+      }
+
+      const id = `${managedPrefix}${building.id}`;
+      liveManagedIds.add(id);
+      this.dropOffPoints.set(id, {
+        id,
+        ownerId: building.ownerId,
+        buildingId: building.id,
+        position: buildingCenter(building, definition),
+        accepts: [...accepts]
+      });
+      this.ensureStockpile(building.ownerId);
+    }
+
+    for (const id of [...this.dropOffPoints.keys()]) {
+      if (id.startsWith(managedPrefix) && !liveManagedIds.has(id)) {
+        this.dropOffPoints.delete(id);
+      }
+    }
+  }
+
   private resolveDropOffTarget(
     unit: RuntimeUnit,
     dropOffPoint: DropOffPointState
@@ -1211,6 +1250,14 @@ export class Simulation {
     ) {
       throw new Error(`Invalid building combat tag: ${definition.kind}`);
     }
+
+    if (
+      definition.dropOffAccepts?.some(
+        (kind) => kind !== "wood" && kind !== "food" && kind !== "gold"
+      )
+    ) {
+      throw new Error(`Invalid building drop-off kind: ${definition.kind}`);
+    }
   }
 
   private validateUnitDefinition(definition: UnitDefinition): void {
@@ -1383,7 +1430,10 @@ function cloneBuildingDefinition(
   return {
     ...definition,
     footprint: { ...definition.footprint },
-    cost: { ...definition.cost }
+    cost: { ...definition.cost },
+    dropOffAccepts: definition.dropOffAccepts
+      ? [...definition.dropOffAccepts]
+      : undefined
   };
 }
 

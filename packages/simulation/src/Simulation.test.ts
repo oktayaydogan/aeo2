@@ -27,6 +27,17 @@ const BARRACKS: BuildingDefinition = {
   populationProvided: 0
 };
 
+const WOOD_DEPOT: BuildingDefinition = {
+  kind: "wood-depot",
+  displayName: "Wood Depot",
+  footprint: { width: 2, height: 2 },
+  cost: { wood: 20, food: 0, gold: 0 },
+  buildTimeSeconds: 1,
+  maxHitPoints: 650,
+  populationProvided: 0,
+  dropOffAccepts: ["wood"]
+};
+
 const TOWN_CENTER: BuildingDefinition = {
   kind: "town-center",
   displayName: "Town Center",
@@ -202,6 +213,167 @@ describe("Simulation economy loop", () => {
 
     expect(resource?.amount).toBe(30);
     expect(stockpile?.resources.wood).toBe(0);
+  });
+});
+
+describe("Simulation economic drop-off buildings", () => {
+  it("uses a completed economic building as a resource-specific drop-off", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      units: [villager("villager-1", "player-1", { x: 8, y: 8 })],
+      buildingDefinitions: [WOOD_DEPOT],
+      buildings: [
+        {
+          id: "wood-depot-1",
+          ownerId: "player-1",
+          kind: "wood-depot",
+          position: { x: 5, y: 7 },
+          progress: 1,
+          completed: true,
+          hitPoints: 650,
+          trainingQueue: []
+        }
+      ],
+      resources: [
+        {
+          id: "tree-near-depot",
+          kind: "wood",
+          position: { x: 10, y: 8 },
+          amount: 10
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 0, food: 0, gold: 0 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "gather",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      resourceId: "tree-near-depot"
+    });
+
+    const snapshot = runSteps(simulation, 220);
+    const stockpile = snapshot.stockpiles.find(
+      (entry) => entry.playerId === "player-1"
+    );
+
+    expect(stockpile?.resources.wood).toBeCloseTo(10, 5);
+  });
+
+  it("removes the drop-off behavior when an economic building is destroyed", () => {
+    const fragileDepot: BuildingDefinition = {
+      ...WOOD_DEPOT,
+      maxHitPoints: 4
+    };
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      units: [
+        villager("worker", "player-1", { x: 9, y: 8 }),
+        militia("attacker", "player-2", { x: 4.4, y: 5 })
+      ],
+      unitDefinitions: [MILITIA],
+      buildingDefinitions: [fragileDepot],
+      buildings: [
+        {
+          id: "wood-depot-1",
+          ownerId: "player-1",
+          kind: "wood-depot",
+          position: { x: 5, y: 4 },
+          progress: 1,
+          completed: true,
+          hitPoints: 4,
+          trainingQueue: []
+        }
+      ],
+      resources: [
+        {
+          id: "tree-after-destruction",
+          kind: "wood",
+          position: { x: 10, y: 8 },
+          amount: 10
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 0, food: 0, gold: 0 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "attack-building",
+      playerId: "player-2",
+      unitIds: ["attacker"],
+      targetBuildingId: "wood-depot-1"
+    });
+    runSteps(simulation, 5);
+
+    expect(
+      simulation.getSnapshot().buildings.some(
+        (building) => building.id === "wood-depot-1"
+      )
+    ).toBe(false);
+
+    simulation.queueCommand({
+      type: "gather",
+      playerId: "player-1",
+      unitIds: ["worker"],
+      resourceId: "tree-after-destruction"
+    });
+
+    const snapshot = runSteps(simulation, 220);
+    const stockpile = snapshot.stockpiles.find(
+      (entry) => entry.playerId === "player-1"
+    );
+
+    expect(stockpile?.resources.wood).toBe(0);
+  });
+
+  it("activates a newly completed economic building as a drop-off", () => {
+    const simulation = new Simulation({
+      tickRate: 20,
+      map: { width: 20, height: 20 },
+      units: [villager("villager-1", "player-1", { x: 3, y: 4 })],
+      buildingDefinitions: [WOOD_DEPOT],
+      resources: [
+        {
+          id: "tree-after-build",
+          kind: "wood",
+          position: { x: 8, y: 5 },
+          amount: 10
+        }
+      ],
+      stockpiles: {
+        "player-1": { wood: 100, food: 0, gold: 0 }
+      }
+    });
+
+    simulation.queueCommand({
+      type: "build",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      buildingKind: "wood-depot",
+      position: { x: 5, y: 4 }
+    });
+
+    let snapshot = runSteps(simulation, 120);
+    expect(snapshot.buildings[0]?.completed).toBe(true);
+
+    simulation.queueCommand({
+      type: "gather",
+      playerId: "player-1",
+      unitIds: ["villager-1"],
+      resourceId: "tree-after-build"
+    });
+
+    snapshot = runSteps(simulation, 220);
+    const stockpile = snapshot.stockpiles.find(
+      (entry) => entry.playerId === "player-1"
+    );
+
+    expect(stockpile?.resources.wood).toBeCloseTo(90, 5);
   });
 });
 

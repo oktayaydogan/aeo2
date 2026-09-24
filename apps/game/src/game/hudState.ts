@@ -9,6 +9,9 @@ export type HudCommand =
   | "house"
   | "barracks"
   | "archery-range"
+  | "wood-depot"
+  | "granary"
+  | "ore-yard"
   | "villager"
   | "militia"
   | "spearman"
@@ -41,6 +44,9 @@ export function getHudCommandAvailability(
       house: false,
       barracks: false,
       "archery-range": false,
+      "wood-depot": false,
+      granary: false,
+      "ore-yard": false,
       villager: false,
       militia: false,
       spearman: false,
@@ -53,6 +59,9 @@ export function getHudCommandAvailability(
     house: hasVillager && input.resources.wood >= 25,
     barracks: hasVillager && input.resources.wood >= 75,
     "archery-range": hasVillager && input.resources.wood >= 100,
+    "wood-depot": hasVillager && input.resources.wood >= 80,
+    granary: hasVillager && input.resources.wood >= 75,
+    "ore-yard": hasVillager && input.resources.wood >= 90,
     villager:
       input.selectedBuildingKind === "town-center" &&
       input.selectedBuildingCompleted === true &&

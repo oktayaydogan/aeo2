@@ -34,6 +34,36 @@ export const BUILDING_DEFINITIONS = [
     buildTimeSeconds: 18,
     maxHitPoints: 1050,
     populationProvided: 0
+  },
+  {
+    kind: "wood-depot",
+    displayName: "Wood Depot",
+    footprint: { width: 2, height: 2 },
+    cost: { wood: 80, food: 0, gold: 0 },
+    buildTimeSeconds: 12,
+    maxHitPoints: 650,
+    populationProvided: 0,
+    dropOffAccepts: ["wood"]
+  },
+  {
+    kind: "granary",
+    displayName: "Granary",
+    footprint: { width: 2, height: 2 },
+    cost: { wood: 75, food: 0, gold: 0 },
+    buildTimeSeconds: 11,
+    maxHitPoints: 620,
+    populationProvided: 0,
+    dropOffAccepts: ["food"]
+  },
+  {
+    kind: "ore-yard",
+    displayName: "Ore Yard",
+    footprint: { width: 2, height: 2 },
+    cost: { wood: 90, food: 0, gold: 0 },
+    buildTimeSeconds: 13,
+    maxHitPoints: 680,
+    populationProvided: 0,
+    dropOffAccepts: ["gold"]
   }
 ] as const;
 

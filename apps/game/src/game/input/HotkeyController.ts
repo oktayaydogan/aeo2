@@ -4,6 +4,9 @@ export interface HotkeyActions {
   placeHouse(): void;
   placeBarracks(): void;
   placeArcheryRange(): void;
+  placeWoodDepot(): void;
+  placeGranary(): void;
+  placeOreYard(): void;
   cancelPlacement(): void;
   trainMilitia(): void;
   trainVillager(): void;
@@ -46,6 +49,9 @@ export class HotkeyController {
     this.bind(Phaser.Input.Keyboard.KeyCodes.H, () => this.actions.placeHouse());
     this.bind(Phaser.Input.Keyboard.KeyCodes.B, () => this.actions.placeBarracks());
     this.bind(Phaser.Input.Keyboard.KeyCodes.X, () => this.actions.placeArcheryRange());
+    this.bind(Phaser.Input.Keyboard.KeyCodes.D, () => this.actions.placeWoodDepot());
+    this.bind(Phaser.Input.Keyboard.KeyCodes.G, () => this.actions.placeGranary());
+    this.bind(Phaser.Input.Keyboard.KeyCodes.O, () => this.actions.placeOreYard());
     this.bind(Phaser.Input.Keyboard.KeyCodes.ESC, () => this.actions.cancelPlacement());
     this.bind(Phaser.Input.Keyboard.KeyCodes.M, () => this.actions.trainMilitia());
     this.bind(Phaser.Input.Keyboard.KeyCodes.V, () => this.actions.trainVillager());

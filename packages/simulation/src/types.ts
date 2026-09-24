@@ -46,7 +46,10 @@ export type BuildingKind =
   | "town-center"
   | "house"
   | "barracks"
-  | "archery-range";
+  | "archery-range"
+  | "wood-depot"
+  | "granary"
+  | "ore-yard";
 
 export type TechnologyKind = "forged-weapons";
 
@@ -150,6 +153,7 @@ export interface BuildingDefinition {
   buildTimeSeconds: number;
   maxHitPoints: number;
   populationProvided: number;
+  dropOffAccepts?: readonly ResourceKind[];
   armor?: number;
   combatTags?: readonly CombatTag[];
 }

@@ -112,12 +112,12 @@ const ACTIVE_MAP = BENCHMARK_MODE
 const RESOURCE_NODES = BENCHMARK_MODE
   ? PROTOTYPE_RESOURCE_NODES
   : SKIRMISH_SETUP.resources;
-const ACTIVE_BLOCKED_CELL_KEYS = new Set(
+const ACTIVE_BLOCKED_CELL_KEYS = new Set<string>(
   (ACTIVE_MAP.blocked ?? []).map(
     (cell) => `${cell.x},${cell.y}`
   )
 );
-const ACTIVE_ELEVATION_BY_CELL = new Map(
+const ACTIVE_ELEVATION_BY_CELL = new Map<string, number>(
   (ACTIVE_MAP.elevation ?? []).map(
     (cell) => [`${cell.x},${cell.y}`, cell.level] as const
   )
@@ -600,6 +600,9 @@ export class WorldScene extends Phaser.Scene {
       placeHouse: () => this.setPlacementMode("house"),
       placeBarracks: () => this.setPlacementMode("barracks"),
       placeArcheryRange: () => this.setPlacementMode("archery-range"),
+      placeWoodDepot: () => this.setPlacementMode("wood-depot"),
+      placeGranary: () => this.setPlacementMode("granary"),
+      placeOreYard: () => this.setPlacementMode("ore-yard"),
       cancelPlacement: () => this.setPlacementMode(undefined),
       trainMilitia: () => this.issueTrainCommand("militia"),
       trainVillager: () => this.issueTrainCommand("villager"),

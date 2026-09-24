@@ -11,7 +11,10 @@ const TEXTURE_KEYS = [
   "building-town-center",
   "building-house",
   "building-barracks",
-  "building-archery-range"
+  "building-archery-range",
+  "building-wood-depot",
+  "building-granary",
+  "building-ore-yard"
 ] as const;
 
 const OUTLINE = 0x201c19;
@@ -302,6 +305,9 @@ function createBuildingTextures(scene: Phaser.Scene): void {
   createBarracksTexture(scene);
   createTownCenterTexture(scene);
   createArcheryRangeTexture(scene);
+  createWoodDepotTexture(scene);
+  createGranaryTexture(scene);
+  createOreYardTexture(scene);
 }
 
 function createHouseTexture(scene: Phaser.Scene): void {
@@ -378,6 +384,61 @@ function createArcheryRangeTexture(scene: Phaser.Scene): void {
   g.lineBetween(70, 50, 76, 64);
 
   g.generateTexture("building-archery-range", 96, 78);
+  g.destroy();
+}
+
+function createWoodDepotTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists("building-wood-depot")) return;
+
+  const g = graphics(scene);
+  drawIsoBuildingShadow(g, 40, 62, 58);
+  drawIsoPrism(g, 40, 26, 30, 15, 22, 0x8b6a45, 0x684b35, 0x513827);
+
+  g.fillStyle(OUTLINE, 1);
+  g.fillRect(17, 42, 8, 18);
+  g.fillStyle(0x6f4b2d, 1);
+  g.fillRect(19, 43, 4, 16);
+  g.fillStyle(0xa47a45, 1);
+  g.fillCircle(21, 44, 6);
+  g.fillCircle(28, 48, 6);
+
+  g.generateTexture("building-wood-depot", 80, 68);
+  g.destroy();
+}
+
+function createGranaryTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists("building-granary")) return;
+
+  const g = graphics(scene);
+  drawIsoBuildingShadow(g, 40, 62, 58);
+  drawIsoPrism(g, 40, 24, 28, 14, 24, 0xb79a5d, 0x887044, 0x6b5638);
+  drawIsoRoof(g, 40, 9, 31, 15, 13, 0x9a6b3f, 0x765136);
+
+  g.fillStyle(0xc8aa65, 1);
+  g.fillEllipse(25, 52, 9, 15);
+  g.fillEllipse(55, 52, 9, 15);
+  g.lineStyle(1, OUTLINE, 0.8);
+  g.strokeEllipse(25, 52, 9, 15);
+  g.strokeEllipse(55, 52, 9, 15);
+
+  g.generateTexture("building-granary", 80, 68);
+  g.destroy();
+}
+
+function createOreYardTexture(scene: Phaser.Scene): void {
+  if (scene.textures.exists("building-ore-yard")) return;
+
+  const g = graphics(scene);
+  drawIsoBuildingShadow(g, 40, 62, 58);
+  drawIsoPrism(g, 40, 28, 28, 14, 20, 0x77766f, 0x5b5a54, 0x464641);
+
+  g.fillStyle(0xb58b36, 1);
+  g.fillTriangle(17, 57, 25, 42, 32, 57);
+  g.fillTriangle(45, 57, 54, 39, 64, 57);
+  g.fillStyle(0xd6b752, 1);
+  g.fillTriangle(49, 52, 54, 42, 59, 53);
+
+  g.generateTexture("building-ore-yard", 80, 68);
   g.destroy();
 }
 
