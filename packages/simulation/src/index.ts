@@ -10,6 +10,7 @@ export type {
   VisionSource
 } from "./visibility";
 export type {
+  AgeTier,
   AiMode,
   AiPlayerDefinition,
   AiPlayerState,
@@ -30,6 +31,7 @@ export type {
   MatchState,
   MatchStatus,
   MoveCommand,
+  PlayerAgeState,
   PlayerPopulationState,
   PlayerStockpileState,
   PlayerTechnologyState,
