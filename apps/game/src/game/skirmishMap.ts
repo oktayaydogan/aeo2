@@ -150,42 +150,61 @@ function createFairResources(
   centerY: number
 ): ResourceNodeState[] {
   const playerResources: ResourceNodeState[] = [
-    {
-      id: "player-food",
-      kind: "food",
-      position: {
-        x: 7.5,
-        y: Math.min(size - 3, centerY + 5)
-      },
-      amount: 300
-    },
-    {
-      id: "player-gold",
-      kind: "gold",
-      position: {
-        x: 9.5,
-        y: centerY - 1
-      },
-      amount: 250
-    },
-    {
-      id: "player-secondary-gold",
-      kind: "gold",
-      position: {
+    ...createResourceCluster(
+      "player-food",
+      "food",
+      { x: 7.5, y: Math.min(size - 4, centerY + 5) },
+      [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1]
+      ],
+      75
+    ),
+    ...createResourceCluster(
+      "player-gold",
+      "gold",
+      { x: 9.5, y: centerY - 1 },
+      [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1]
+      ],
+      70
+    ),
+    ...createResourceCluster(
+      "player-secondary-gold",
+      "gold",
+      {
         x: Math.max(12.5, size * 0.28),
-        y: Math.max(4, centerY - 9)
+        y: Math.max(4.5, centerY - 9.5)
       },
-      amount: 350
-    },
-    {
-      id: "player-secondary-food",
-      kind: "food",
-      position: {
+      [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+        [0, 1],
+        [1, 1]
+      ],
+      80
+    ),
+    ...createResourceCluster(
+      "player-secondary-food",
+      "food",
+      {
         x: Math.max(13.5, size * 0.3),
-        y: Math.min(size - 4, centerY + 9)
+        y: Math.min(size - 5.5, centerY + 9.5)
       },
-      amount: 350
-    }
+      [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1]
+      ],
+      90
+    )
   ];
 
   const mirrored = playerResources.map((resource) => ({
@@ -194,27 +213,67 @@ function createFairResources(
     position: mirrorPoint(resource.position, size)
   }));
   const neutralResources: ResourceNodeState[] = [
-    {
-      id: "neutral-gold-north",
-      kind: "gold",
-      position: { x: size / 2, y: Math.max(4, centerY - 8) },
-      amount: 500
-    },
-    {
-      id: "neutral-gold-south",
-      kind: "gold",
-      position: { x: size / 2, y: Math.min(size - 4, centerY + 8) },
-      amount: 500
-    },
-    {
-      id: "neutral-food-center",
-      kind: "food",
-      position: { x: size / 2 - 0.5, y: centerY + 2.5 },
-      amount: 450
-    }
+    ...createResourceCluster(
+      "neutral-gold-north",
+      "gold",
+      { x: size / 2 - 1.5, y: Math.max(4.5, centerY - 8.5) },
+      [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+        [0, 1],
+        [1, 1],
+        [2, 1]
+      ],
+      85
+    ),
+    ...createResourceCluster(
+      "neutral-gold-south",
+      "gold",
+      { x: size / 2 - 1.5, y: Math.min(size - 5.5, centerY + 8.5) },
+      [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+        [0, 1],
+        [1, 1],
+        [2, 1]
+      ],
+      85
+    ),
+    ...createResourceCluster(
+      "neutral-food-center",
+      "food",
+      { x: size / 2 - 1.5, y: centerY + 2.5 },
+      [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1]
+      ],
+      110
+    )
   ];
 
   return [...playerResources, ...mirrored, ...neutralResources];
+}
+
+function createResourceCluster(
+  idPrefix: string,
+  kind: ResourceNodeState["kind"],
+  origin: Vector2,
+  offsets: readonly (readonly [number, number])[],
+  amount: number
+): ResourceNodeState[] {
+  return offsets.map(([dx, dy], index) => ({
+    id: index === 0 ? idPrefix : `${idPrefix}-${index + 1}`,
+    kind,
+    position: {
+      x: origin.x + dx,
+      y: origin.y + dy
+    },
+    amount
+  }));
 }
 
 function createMirroredForestClusters(
