@@ -34,6 +34,8 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
   ) {}
 
   step(units: Iterable<TUnit>): void {
+    const activeBuildersByBuilding = new Map<string, number>();
+
     for (const unit of units) {
       const task = unit.buildTask;
 
@@ -74,9 +76,29 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
       unit.waypoints = [];
       unit.destination = null;
       unit.activity = "building";
+      activeBuildersByBuilding.set(
+        building.id,
+        (activeBuildersByBuilding.get(building.id) ?? 0) + 1
+      );
+    }
+
+    for (const [buildingId, builderCount] of activeBuildersByBuilding) {
+      const building = this.buildings.get(buildingId);
+
+      if (!building || building.completed) {
+        continue;
+      }
+
+      const definition = this.buildingDefinitions.get(building.kind);
+
+      if (!definition) {
+        continue;
+      }
 
       building.progress = Math.min(
-        building.progress + 1 / (definition.buildTimeSeconds * this.tickRate),
+        building.progress +
+          builderConstructionMultiplier(builderCount) /
+            (definition.buildTimeSeconds * this.tickRate),
         1
       );
       building.hitPoints = Math.max(
@@ -144,7 +166,8 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
   findBuildApproachPosition(
     unit: TUnit,
     definition: BuildingDefinition,
-    position: Vector2
+    position: Vector2,
+    reservedTargets: readonly Vector2[] = []
   ): Vector2 | null {
     const candidates: Vector2[] = [];
 
@@ -177,7 +200,12 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
           a.x - b.x
       );
 
-    for (const candidate of ordered) {
+    const unreserved = ordered.filter(
+      (candidate) =>
+        !reservedTargets.some((reserved) => samePoint(candidate, reserved))
+    );
+
+    for (const candidate of [...unreserved, ...ordered]) {
       if (
         distance(unit.position, candidate) <= ARRIVAL_EPSILON ||
         this.navigation.findPath(unit.position, candidate).length > 0
@@ -214,6 +242,23 @@ export class ConstructionSystem<TUnit extends ConstructionUnit> {
       cellY < building.position.y + definition.footprint.height
     );
   }
+}
+
+function builderConstructionMultiplier(builderCount: number): number {
+  if (builderCount <= 0) {
+    return 0;
+  }
+
+  // AoE2-style diminishing returns: the first builder contributes the full
+  // rate, while each additional builder contributes one third of that rate.
+  return 1 + (builderCount - 1) / 3;
+}
+
+function samePoint(a: Vector2, b: Vector2): boolean {
+  return (
+    Math.abs(a.x - b.x) <= ARRIVAL_EPSILON &&
+    Math.abs(a.y - b.y) <= ARRIVAL_EPSILON
+  );
 }
 
 function distance(a: Vector2, b: Vector2): number {
