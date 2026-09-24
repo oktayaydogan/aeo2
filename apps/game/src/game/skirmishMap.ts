@@ -272,7 +272,8 @@ function createResourceCluster(
       x: origin.x + dx,
       y: origin.y + dy
     },
-    amount
+    amount,
+    blocksMovement: true
   }));
 }
 
