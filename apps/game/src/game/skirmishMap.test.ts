@@ -55,7 +55,7 @@ describe("createSkirmishSetup", () => {
   });
 
   it("supports deterministic small, standard, and large map sizes", () => {
-    for (const size of [16, 20, 28]) {
+    for (const size of [32, 48, 64]) {
       const first = createSkirmishSetup(1337, size);
       const second = createSkirmishSetup(1337, size);
 
@@ -80,9 +80,11 @@ describe("createSkirmishSetup", () => {
     for (const seed of [1, 2, 3, 10, 42, 1337, 20260920]) {
       const setup = createSkirmishSetup(seed);
 
+      const centerY = Math.floor(setup.map.height / 2);
+
       expect(
         setup.map.blocked?.some(
-          (cell) => cell.y === 9 || cell.y === 10
+          (cell) => cell.y === centerY - 1 || cell.y === centerY
         )
       ).toBe(false);
     }
@@ -117,8 +119,14 @@ describe("createSkirmishSetup", () => {
       const navigation = new GridNavigation(setup.map);
 
       const path = navigation.findPath(
-        { x: 5.5, y: 10.5 },
-        { x: 14.5, y: 10.5 }
+        {
+          x: setup.player.townCenter.x + 4.5,
+          y: setup.player.townCenter.y + 2.5
+        },
+        {
+          x: setup.enemy.townCenter.x - 0.5,
+          y: setup.enemy.townCenter.y + 2.5
+        }
       );
 
       expect(path.length).toBeGreaterThan(0);
