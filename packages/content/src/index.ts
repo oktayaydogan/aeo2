@@ -33,7 +33,8 @@ export const BUILDING_DEFINITIONS = [
     cost: { wood: 100, food: 0, gold: 0 },
     buildTimeSeconds: 18,
     maxHitPoints: 1050,
-    populationProvided: 0
+    populationProvided: 0,
+    requiredAge: 2
   },
   {
     kind: "wood-depot",
@@ -102,7 +103,8 @@ export const UNIT_DEFINITIONS = [
     attackDamage: 4,
     attackRange: 4.5,
     attackCooldownSeconds: 1.7,
-    populationCost: 1
+    populationCost: 1,
+    requiredAge: 2
   },
   {
     kind: "spearman",
@@ -115,6 +117,7 @@ export const UNIT_DEFINITIONS = [
     attackRange: 0.8,
     attackCooldownSeconds: 1.3,
     populationCost: 1,
+    requiredAge: 2,
     bonuses: [
       {
         targetKind: "archer",
@@ -131,6 +134,37 @@ export const TECHNOLOGY_DEFINITIONS = [
     cost: { wood: 0, food: 75, gold: 75 },
     researchTimeSeconds: 20,
     buildingKind: "barracks",
-    attackDamageBonus: 1
+    attackDamageBonus: 1,
+    requiredAge: 2
+  },
+  {
+    kind: "civic-ascension",
+    displayName: "Civic Ascension",
+    cost: { wood: 0, food: 300, gold: 100 },
+    researchTimeSeconds: 30,
+    buildingKind: "town-center",
+    attackDamageBonus: 0,
+    requiredAge: 1,
+    advancesToAge: 2
+  },
+  {
+    kind: "citadel-ascension",
+    displayName: "Citadel Ascension",
+    cost: { wood: 0, food: 450, gold: 200 },
+    researchTimeSeconds: 40,
+    buildingKind: "town-center",
+    attackDamageBonus: 0,
+    requiredAge: 2,
+    advancesToAge: 3
+  },
+  {
+    kind: "dominion-ascension",
+    displayName: "Dominion Ascension",
+    cost: { wood: 0, food: 650, gold: 350 },
+    researchTimeSeconds: 50,
+    buildingKind: "town-center",
+    attackDamageBonus: 0,
+    requiredAge: 3,
+    advancesToAge: 4
   }
 ] as const;
