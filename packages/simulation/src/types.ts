@@ -79,6 +79,7 @@ export interface ResourceNodeState {
   kind: ResourceKind;
   position: Vector2;
   amount: number;
+  blocksMovement?: boolean;
 }
 
 export interface DropOffPointState {
