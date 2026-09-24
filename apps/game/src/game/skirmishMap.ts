@@ -53,7 +53,7 @@ export function createSkirmishSetup(
     }
   };
 
-  const resources = createFairResources(normalizedSize, centerY);
+  const strategicResources = createFairResources(normalizedSize, centerY);
   const reserved = new Set<string>();
 
   reserveFootprint(
@@ -89,7 +89,7 @@ export function createSkirmishSetup(
     normalizedSize
   );
 
-  for (const resource of resources) {
+  for (const resource of strategicResources) {
     reserveAroundPoint(
       reserved,
       resource.position,
@@ -120,15 +120,16 @@ export function createSkirmishSetup(
   const forestKeys = new Set(
     forestCells.map((cell) => cellKey(cell.x, cell.y))
   );
-  const blocked = [
-    ...forestCells,
-    ...createMirroredObstacles(
-      random,
-      new Set([...reserved, ...forestKeys]),
-      normalizedSize,
-      centerCorridorY
-    )
-  ].sort((a, b) => a.y - b.y || a.x - b.x);
+  const blocked = createMirroredObstacles(
+    random,
+    new Set([...reserved, ...forestKeys]),
+    normalizedSize,
+    centerCorridorY
+  );
+  const resources = [
+    ...strategicResources,
+    ...createForestResources(forestCells)
+  ];
 
   return {
     seed: normalizedSeed,
@@ -149,15 +150,6 @@ function createFairResources(
   centerY: number
 ): ResourceNodeState[] {
   const playerResources: ResourceNodeState[] = [
-    {
-      id: "player-wood",
-      kind: "wood",
-      position: {
-        x: 6.5,
-        y: Math.max(3, centerY - 6)
-      },
-      amount: 400
-    },
     {
       id: "player-food",
       kind: "food",
@@ -235,22 +227,55 @@ function createMirroredForestClusters(
   const clusterCount = Math.max(3, Math.round(size / 12));
   const leftMinX = 8;
   const leftMaxX = Math.max(leftMinX + 1, Math.floor(size / 2) - 5);
+  const mapCenterY = Math.floor(size / 2);
+  const clusters = [
+    {
+      centerX: 9,
+      centerY: Math.max(5, mapCenterY - 8),
+      radiusX: 3,
+      radiusY: 3
+    },
+    {
+      centerX: 10,
+      centerY: Math.min(size - 6, mapCenterY + 9),
+      radiusX: 3,
+      radiusY: 3
+    }
+  ];
 
   for (let cluster = 0; cluster < clusterCount; cluster += 1) {
-    const centerX =
-      leftMinX + Math.floor(random() * Math.max(1, leftMaxX - leftMinX + 1));
-    const centerY =
-      4 + Math.floor(random() * Math.max(1, size - 8));
-    const radiusX = 2 + Math.floor(random() * 3);
-    const radiusY = 2 + Math.floor(random() * 3);
+    clusters.push({
+      centerX:
+        leftMinX +
+        Math.floor(random() * Math.max(1, leftMaxX - leftMinX + 1)),
+      centerY: 4 + Math.floor(random() * Math.max(1, size - 8)),
+      radiusX: 2 + Math.floor(random() * 3),
+      radiusY: 2 + Math.floor(random() * 3)
+    });
+  }
 
-    for (let y = centerY - radiusY; y <= centerY + radiusY; y += 1) {
-      for (let x = centerX - radiusX; x <= centerX + radiusX; x += 1) {
+  for (const cluster of clusters) {
+    for (
+      let y = cluster.centerY - cluster.radiusY;
+      y <= cluster.centerY + cluster.radiusY;
+      y += 1
+    ) {
+      for (
+        let x = cluster.centerX - cluster.radiusX;
+        x <= cluster.centerX + cluster.radiusX;
+        x += 1
+      ) {
         const normalized =
-          Math.pow((x - centerX) / Math.max(1, radiusX), 2) +
-          Math.pow((y - centerY) / Math.max(1, radiusY), 2);
+          Math.pow(
+            (x - cluster.centerX) / Math.max(1, cluster.radiusX),
+            2
+          ) +
+          Math.pow(
+            (y - cluster.centerY) / Math.max(1, cluster.radiusY),
+            2
+          );
 
-        if (normalized > 1.15 || random() < 0.16) {
+        if (normalized > 1.15 || random() < 0.12) {
           continue;
         }
 
@@ -273,6 +298,18 @@ function createMirroredForestClusters(
   return [...forest.values()].sort(
     (a, b) => a.y - b.y || a.x - b.x
   );
+}
+
+function createForestResources(
+  forestCells: readonly GridCell[]
+): ResourceNodeState[] {
+  return forestCells.map((cell, index) => ({
+    id: `tree-${index + 1}-${cell.x}-${cell.y}`,
+    kind: "wood",
+    position: { x: cell.x + 0.5, y: cell.y + 0.5 },
+    amount: 80,
+    blocksMovement: true
+  }));
 }
 
 function createMirroredObstacles(
