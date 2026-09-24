@@ -33,6 +33,7 @@ export interface GridMapDefinition {
 }
 
 export type ResourceKind = "wood" | "food" | "gold";
+export type AgeTier = 1 | 2 | 3 | 4;
 export type UnitKind = "villager" | "militia" | "archer" | "spearman";
 export type UnitActivity =
   | "idle"
@@ -51,7 +52,11 @@ export type BuildingKind =
   | "granary"
   | "ore-yard";
 
-export type TechnologyKind = "forged-weapons";
+export type TechnologyKind =
+  | "forged-weapons"
+  | "civic-ascension"
+  | "citadel-ascension"
+  | "dominion-ascension";
 
 export interface CargoState {
   kind: ResourceKind;
@@ -135,6 +140,7 @@ export interface UnitDefinition {
   attackRange: number;
   attackCooldownSeconds: number;
   populationCost: number;
+  requiredAge?: AgeTier;
   armor?: number;
   combatTags?: readonly CombatTag[];
   acquisitionRange?: number;
@@ -153,6 +159,7 @@ export interface BuildingDefinition {
   buildTimeSeconds: number;
   maxHitPoints: number;
   populationProvided: number;
+  requiredAge?: AgeTier;
   dropOffAccepts?: readonly ResourceKind[];
   armor?: number;
   combatTags?: readonly CombatTag[];
@@ -170,6 +177,8 @@ export interface TechnologyDefinition {
   researchTimeSeconds: number;
   buildingKind: BuildingKind;
   attackDamageBonus: number;
+  requiredAge?: AgeTier;
+  advancesToAge?: AgeTier;
 }
 
 export interface ResearchQueueItemState {
@@ -208,6 +217,11 @@ export interface PlayerTechnologyState {
   researched: readonly TechnologyKind[];
 }
 
+export interface PlayerAgeState {
+  playerId: string;
+  age: AgeTier;
+}
+
 export interface SimulationSnapshot {
   tick: number;
   units: readonly UnitState[];
@@ -215,6 +229,7 @@ export interface SimulationSnapshot {
   stockpiles: readonly PlayerStockpileState[];
   population: readonly PlayerPopulationState[];
   aiPlayers: readonly AiPlayerState[];
+  ages: readonly PlayerAgeState[];
   technologies: readonly PlayerTechnologyState[];
   match: MatchState;
   buildings: readonly BuildingState[];
