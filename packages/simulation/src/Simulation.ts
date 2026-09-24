@@ -28,6 +28,7 @@ import {
   selectOwnedVillagers
 } from "./commands/commandValidation";
 import type {
+  AgeTier,
   AiPlayerDefinition,
   AiPlayerState,
   AttackBuildingCommand,
@@ -40,6 +41,7 @@ import type {
   GatherCommand,
   MatchState,
   MoveCommand,
+  PlayerAgeState,
   PlayerPopulationState,
   PlayerStockpileState,
   ResearchCommand,
@@ -388,6 +390,12 @@ export class Simulation {
         )
       ),
       aiPlayers: this.aiSystem.getStates(),
+      ages: this.playerIds().map(
+        (playerId): PlayerAgeState => ({
+          playerId,
+          age: this.playerAge(playerId)
+        })
+      ),
       technologies: this.playerIds().map((playerId) => ({
         playerId,
         researched: this.researchSystem.getResearched(playerId)
@@ -548,15 +556,20 @@ export class Simulation {
       command.playerId,
       this.units
     );
+    const definition = this.buildingDefinitions.get(command.buildingKind);
 
-    if (!fromQueue && command.queueMode === "append") {
-      this.enqueueUnitOrderGroup(command, builders);
+    if (
+      !definition ||
+      !this.meetsAgeRequirement(
+        command.playerId,
+        definition.requiredAge
+      )
+    ) {
       return;
     }
 
-    const definition = this.buildingDefinitions.get(command.buildingKind);
-
-    if (!definition) {
+    if (!fromQueue && command.queueMode === "append") {
+      this.enqueueUnitOrderGroup(command, builders);
       return;
     }
 
@@ -642,10 +655,22 @@ export class Simulation {
   }
 
   private applyTrainCommand(command: TrainCommand): void {
+    const definition = this.unitDefinitions.get(command.unitKind);
+
+    if (
+      !definition ||
+      !this.meetsAgeRequirement(
+        command.playerId,
+        definition.requiredAge
+      )
+    ) {
+      return;
+    }
+
     this.productionSystem.startTraining(
       command.playerId,
       this.buildings.get(command.buildingId),
-      this.unitDefinitions.get(command.unitKind),
+      definition,
       this.units.values(),
       this.buildings.values(),
       () => this.ensureStockpile(command.playerId)
@@ -653,10 +678,24 @@ export class Simulation {
   }
 
   private applyResearchCommand(command: ResearchCommand): void {
+    const definition = this.technologyDefinitions.get(
+      command.technologyKind
+    );
+    const age = this.playerAge(command.playerId);
+
+    if (
+      !definition ||
+      (definition.requiredAge ?? 1) > age ||
+      (definition.advancesToAge !== undefined &&
+        definition.advancesToAge !== age + 1)
+    ) {
+      return;
+    }
+
     this.researchSystem.startResearch(
       command.playerId,
       this.buildings.get(command.buildingId),
-      this.technologyDefinitions.get(command.technologyKind),
+      definition,
       () => this.ensureStockpile(command.playerId)
     );
   }
@@ -1181,6 +1220,28 @@ export class Simulation {
     return candidate;
   }
 
+  private playerAge(playerId: string): AgeTier {
+    let age: AgeTier = 1;
+
+    for (const technologyKind of this.researchSystem.getResearched(playerId)) {
+      const advancesToAge =
+        this.technologyDefinitions.get(technologyKind)?.advancesToAge;
+
+      if (advancesToAge && advancesToAge > age) {
+        age = advancesToAge;
+      }
+    }
+
+    return age;
+  }
+
+  private meetsAgeRequirement(
+    playerId: string,
+    requiredAge: AgeTier | undefined
+  ): boolean {
+    return (requiredAge ?? 1) <= this.playerAge(playerId);
+  }
+
   private playerIds(): string[] {
     const ids = new Set<string>();
 
@@ -1258,6 +1319,13 @@ export class Simulation {
     ) {
       throw new Error(`Invalid building drop-off kind: ${definition.kind}`);
     }
+
+    if (
+      definition.requiredAge !== undefined &&
+      !isAgeTier(definition.requiredAge)
+    ) {
+      throw new Error(`Invalid building age: ${definition.kind}`);
+    }
   }
 
   private validateUnitDefinition(definition: UnitDefinition): void {
@@ -1283,7 +1351,9 @@ export class Simulation {
           definition.acquisitionRange < 0)) ||
       (definition.maxChaseDistance !== undefined &&
         (!Number.isFinite(definition.maxChaseDistance) ||
-          definition.maxChaseDistance < 0))
+          definition.maxChaseDistance < 0)) ||
+      (definition.requiredAge !== undefined &&
+        !isAgeTier(definition.requiredAge))
     ) {
       throw new Error(`Invalid unit definition: ${definition.kind}`);
     }
@@ -1312,7 +1382,13 @@ export class Simulation {
     if (
       !Number.isFinite(definition.researchTimeSeconds) ||
       definition.researchTimeSeconds <= 0 ||
-      !Number.isFinite(definition.attackDamageBonus)
+      !Number.isFinite(definition.attackDamageBonus) ||
+      (definition.requiredAge !== undefined &&
+        !isAgeTier(definition.requiredAge)) ||
+      (definition.advancesToAge !== undefined &&
+        (!isAgeTier(definition.advancesToAge) ||
+          definition.requiredAge === undefined ||
+          definition.advancesToAge !== definition.requiredAge + 1))
     ) {
       throw new Error(
         `Invalid technology definition: ${definition.kind}`
@@ -1321,6 +1397,10 @@ export class Simulation {
   }
 
 
+}
+
+function isAgeTier(value: number): value is AgeTier {
+  return value === 1 || value === 2 || value === 3 || value === 4;
 }
 
 function buildingFootprintCells(
