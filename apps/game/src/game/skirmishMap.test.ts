@@ -131,6 +131,32 @@ describe("createSkirmishSetup", () => {
     }
   });
 
+  it("generates mirrored tactical elevation while keeping starts flat", () => {
+    const setup = createSkirmishSetup(20260920, 48);
+    const elevation = new Map(
+      (setup.map.elevation ?? []).map(
+        (cell) => [`${cell.x},${cell.y}`, cell.level] as const
+      )
+    );
+
+    expect(elevation.size).toBeGreaterThan(0);
+
+    for (const cell of setup.map.elevation ?? []) {
+      expect(
+        elevation.get(`${setup.map.width - 1 - cell.x},${cell.y}`)
+      ).toBe(cell.level);
+      expect(cell.level === 1 || cell.level === 2).toBe(true);
+    }
+
+    for (const start of [setup.player, setup.enemy]) {
+      for (let y = start.townCenter.y; y < start.townCenter.y + 4; y += 1) {
+        for (let x = start.townCenter.x; x < start.townCenter.x + 4; x += 1) {
+          expect(elevation.has(`${x},${y}`)).toBe(false);
+        }
+      }
+    }
+  });
+
   it("adds safe, secondary, and neutral resource zones", () => {
     const setup = createSkirmishSetup(20260920, 48);
     const ids = new Set(setup.resources.map((resource) => resource.id));
