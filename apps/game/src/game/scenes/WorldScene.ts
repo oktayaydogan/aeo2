@@ -117,6 +117,13 @@ const ACTIVE_BLOCKED_CELL_KEYS = new Set(
     (cell) => `${cell.x},${cell.y}`
   )
 );
+const ACTIVE_FOREST_CELL_KEYS = new Set(
+  BENCHMARK_MODE
+    ? []
+    : SKIRMISH_SETUP.forestCells.map(
+        (cell) => `${cell.x},${cell.y}`
+      )
+);
 
 
 export class WorldScene extends Phaser.Scene {
@@ -458,12 +465,14 @@ export class WorldScene extends Phaser.Scene {
           this.projection
         );
         const left = gridToScreen({ x, y: y + 1 }, this.projection);
-        const blocked = ACTIVE_BLOCKED_CELL_KEYS.has(`${x},${y}`);
+        const key = `${x},${y}`;
+        const blocked = ACTIVE_BLOCKED_CELL_KEYS.has(key);
+        const forest = ACTIVE_FOREST_CELL_KEYS.has(key);
         const visual = terrainCellVisual(
           x,
           y,
           SKIRMISH_SEED,
-          blocked
+          blocked && !forest
         );
 
         graphics.fillStyle(visual.fill, 1);
@@ -483,7 +492,26 @@ export class WorldScene extends Phaser.Scene {
 
         const accents = terrainAccentOffsets(visual.variant);
 
-        if (blocked) {
+        if (forest) {
+          for (const [u, v] of accents) {
+            const point = gridToScreen(
+              { x: x + u, y: y + v },
+              this.projection
+            );
+
+            graphics.fillStyle(0x183b2a, 0.95);
+            graphics.fillCircle(point.x, point.y - 7, 5);
+            graphics.fillStyle(0x285c3d, 0.95);
+            graphics.fillCircle(point.x + 2, point.y - 10, 4);
+            graphics.lineStyle(2, 0x6d4d2f, 0.9);
+            graphics.lineBetween(
+              point.x,
+              point.y - 5,
+              point.x,
+              point.y + 2
+            );
+          }
+        } else if (blocked) {
           graphics.lineStyle(
             2,
             visual.accent,

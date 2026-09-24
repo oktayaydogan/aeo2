@@ -90,6 +90,38 @@ describe("createSkirmishSetup", () => {
     }
   });
 
+  it("creates mirrored forest clusters without sealing the center corridor", () => {
+    const setup = createSkirmishSetup(20260920, 48);
+    const forest = new Set(
+      setup.forestCells.map((cell) => `${cell.x},${cell.y}`)
+    );
+    const centerY = Math.floor(setup.map.height / 2);
+
+    expect(setup.forestCells.length).toBeGreaterThan(20);
+    expect(
+      setup.forestCells.some(
+        (cell) => cell.y === centerY - 1 || cell.y === centerY
+      )
+    ).toBe(false);
+
+    for (const cell of setup.forestCells) {
+      const mirrorKey = `${setup.map.width - 1 - cell.x},${cell.y}`;
+      expect(forest.has(mirrorKey)).toBe(true);
+    }
+  });
+
+  it("adds safe, secondary, and neutral resource zones", () => {
+    const setup = createSkirmishSetup(20260920, 48);
+    const ids = new Set(setup.resources.map((resource) => resource.id));
+
+    expect(ids.has("player-gold")).toBe(true);
+    expect(ids.has("player-secondary-gold")).toBe(true);
+    expect(ids.has("enemy-secondary-gold")).toBe(true);
+    expect(ids.has("neutral-gold-north")).toBe(true);
+    expect(ids.has("neutral-gold-south")).toBe(true);
+    expect(ids.has("neutral-food-center")).toBe(true);
+  });
+
   it("keeps resource cells free from generated obstacles", () => {
     for (const seed of [1, 42, 1337, 9001]) {
       const setup = createSkirmishSetup(seed);
