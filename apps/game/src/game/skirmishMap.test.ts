@@ -170,6 +170,7 @@ describe("createSkirmishSetup", () => {
     for (const seed of [1, 2, 42, 1337, 7331, 20260920]) {
       const setup = createSkirmishSetup(seed);
       const navigation = new GridNavigation(setup.map);
+      navigation.blockCells(setup.forestCells);
 
       const path = navigation.findPath(
         {
